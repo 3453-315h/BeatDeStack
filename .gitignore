@@ -11,7 +11,7 @@ __pycache__/
 
 # Distribution / Build
 build/
-dist/
+dist/BeatDeStackExtended_CUDA.exe
 *.spec
 
 # IDEs
@@ -39,4 +39,8 @@ build_mysetupdirectml.bat
 
 venv*/
 
-dist/
+dist/BeatDeStackExtended_CUDA.exe
+
+!dist/BeatDeStackExtended_CUDA.exeREADME.md
+
+!dist/BeatDeStackExtended_CUDA.exeREADME.md
