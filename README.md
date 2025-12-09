@@ -1,4 +1,4 @@
-# BeatDeStack Extended v3.5.0 🚀
+# BeatDeStack Extended v3.5.0
 
 **The Ultimate Offline AI Stem Separation & Audio Enhancement Tool.**
 
@@ -8,9 +8,9 @@
 
 ---
 
-## ✨ Features
+## Features
 
-### 🎵 Multi-Stem Separation
+### Multi-Stem Separation
 Choose from a wide range of extraction modes to suit your workflow:
 *   **2-Stem**: Vocals / Instrumental (Perfect for karaoke or acapellas).
 *   **4-Stem**: Vocals, Drums, Bass, Other.
@@ -18,7 +18,7 @@ Choose from a wide range of extraction modes to suit your workflow:
 *   **Vocals Only**: Specialized pipeline for pristine acapellas using top-tier models like `Kim_Vocal_2`.
 *   **Instrumental / Karaoke**: High-quality backing tracks with minimal vocal bleed.
 
-### 🎛️ Audio Enhancement Suite
+### Audio Enhancement Suite
 Polish your stems or clean up recordings directly within the app:
 *   **De-Reverb**: Remove room ambiance and "wetness" to dry out recordings (Powered by `Reverb_HQ_By_FoxJoy`).
 *   **De-Echo**: Eliminate slapback delay and echo artifacts.
@@ -36,7 +36,7 @@ Turn your audio into editable MIDI notes!
 
 ---
 
-## 🎛️ Configuration Guide (Right Sidebar)
+## Configuration Guide (Right Sidebar)
 BeatDeStack Extended puts professional control at your fingertips. Here is a complete breakdown of every option on the right-hand panel, ordered from top to bottom.
 
 ### 1. Stem Options
@@ -89,7 +89,7 @@ Detailed control for power users.
 
 ---
 
-## 📦 Included Models & Compatibility
+## Included Models & Compatibility
 
 ### Default Defaults (Pre-installed)
 This package comes pre-loaded with a curated selection of "Best-in-Class" models:
@@ -106,7 +106,7 @@ This package comes pre-loaded with a curated selection of "Best-in-Class" models
 
 *Plus standard Demucs v4 models (`htdemucs` family) which are built-in.*
 
-### 🧩 Other Supported Models
+### Other Supported Models
 BeatDeStack Extended supports the entire ecosystem of community-trained models. While not pre-installed to keep the download size reasonable, you can download and **Import** any of the following types:
 *   **BS-Roformer / MelBand Roformer**: The current state-of-the-art for instrumental separation (e.g., `model_bs_roformer_ep_317_sdr_12.9755.ckpt`).
 *   **MDX23C**: Newer variations of MDX-Net.
@@ -134,7 +134,7 @@ BeatDeStack Extended supports the entire ecosystem of community-trained models. 
 
 ---
 
-## 🛠️ Installation & Building
+## Installation & Building
 
 ### 1. Clone the Repository
 ```bash
@@ -145,31 +145,31 @@ cd BeatDeStackExtended
 ### 2. Install Dependencies & Build
 Choose the script matching your hardware:
 
-#### 🪟 Windows (AMD GPU) - *Recommended for Radeon*
+####  Windows (AMD GPU) - *Recommended for Radeon*
 This sets up the AMD ROCm environment for hardware acceleration.
 ```powershell
 .\build_amd_rocmsdk.bat
 ```
 
-#### 🟩 Windows (NVIDIA CUDA) - *Recommended for GeForce*
+#### Windows (NVIDIA CUDA) - *Recommended for GeForce*
 Optimized for NVIDIA GPUs (Requires CUDA 12.x).
 ```powershell
 .\build_cuda.bat
 ```
 
-#### 🟦 Windows (DirectML) - *Broad Compatibility*
+#### Windows (DirectML) - *Broad Compatibility*
 Experimental GPU acceleration for Intel ARC, AMD, and NVIDIA.
 ```powershell
 .\build_directml.bat
 ```
 
-#### 🧱 Windows (CPU Only / No GPU)
+#### Windows (CPU Only / No GPU)
 Ideal for standard laptops or desktops without a dedicated GPU.
 ```powershell
 .\rebuild_cpu_robust.bat
 ```
 
-#### 🍎 macOS (Apple Silicon)
+#### macOS (Apple Silicon)
 ```bash
 chmod +x build_macos_mps.sh run_macos.sh
 ./build_macos_mps.sh
@@ -183,7 +183,7 @@ chmod +x build_rocm.sh run_linux.sh
 
 ---
 
-## 🚀 Usage
+## Usage
 
 ### Starting the App
 *   **Windows**: Run the generated `.exe` from the `dist/` folder (e.g., `BeatDeStackExtended_CUDA.exe`).
