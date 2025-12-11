@@ -1,0 +1,54 @@
+# Virtual Environments
+venv/
+venv_cpu/
+venv_gpu/
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / Build
+build/
+dist/BeatDeStackExtended_CUDA.exe
+*.spec
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# Logs and Temp
+*.log
+temp/
+tmp/
+
+# Large Audio Files
+*.wav
+*.mp3
+*.flac
+*.m4a
+test_audio/
+test_audio - Stems/
+
+# Local Config
+
+
+build_mysetupdirectml.bat
+
+venv*/
+
+dist/BeatDeStackExtended_CUDA.exe
+
+!dist/BeatDeStackExtended_CUDA.exeREADME.md
+
+!dist/BeatDeStackExtended_CUDA.exeREADME.md
+
+# User Exclusions
+BeatDeStackExtended_Slim_DirectML.exe_extracted/
+CRASH_LOG.txt
+*.zip
+pyinstxtractor.py
+recovered_main.py
+restore_code.bat
