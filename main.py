@@ -81,6 +81,10 @@ def main():
     splash.show_message("Initializing Core Systems...")
     app.processEvents()
     
+    # Configure GPU memory limits for better performance (Performance Optimization #14)
+    from src.core.gpu_utils import configure_gpu_memory
+    configure_gpu_memory(0.9)  # Use max 90% of GPU memory
+    
     # Simulate loading (or actually load things if we had heavy imports)
     time.sleep(1) 
     splash.show_message("Loading AI Models...")

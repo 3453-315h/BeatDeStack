@@ -50,6 +50,11 @@ QUALITY_PRESETS = {
 DEFAULT_SAMPLE_RATE = 44100
 DEFAULT_N_FFT = 2048
 
+# Model Hot-Loading Cache (Performance Optimization #9)
+# Keeps loaded models in memory to avoid reloading weights for each file
+_separator_cache: dict = {}  # {model_name: Separator}
+_current_cached_model: str | None = None  # Track current model for cache invalidation
+
 
 def _get_audio_subtype(format_ext: str, bit_depth: str) -> str | None:
     """Get soundfile subtype based on format and bit depth."""
@@ -101,34 +106,70 @@ def _is_demucs_model(model_name):
     return True
 
 def _run_audio_separator(input_file, model_name, output_dir, **kwargs):
-    """Run separation using audio-separator library for non-Demucs models."""
+    """Run separation using audio-separator library for non-Demucs models.
+    
+    Uses model hot-loading: keeps the Separator cached in memory.
+    Clears cache when switching to a different model.
+    """
+    global _separator_cache, _current_cached_model
+    
     try:
         from audio_separator.separator import Separator
     except ImportError:
         logger.error("audio-separator not installed. Cannot use non-Demucs models.")
         return []
     
-    logger.info(f"Using audio-separator for model: {model_name}")
-    
     # Get project models directory
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     models_dir = os.path.join(project_root, "models")
     
     try:
-        separator = Separator(
-            output_dir=output_dir,
-            model_file_dir=models_dir,
-            output_format="WAV",
-            normalization_threshold=kwargs.get("normalization", 0.9)
-        )
-        separator.load_model(model_name)
-        # batch_size is an arg for separate(), not __init__
+        # Check if we need to clear cache (model switch)
+        if _current_cached_model and _current_cached_model != model_name:
+            logger.info(f"Model switch detected: {_current_cached_model} -> {model_name}. Clearing cache.")
+            _separator_cache.clear()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        
+        # Check if model is already cached
+        if model_name in _separator_cache:
+            logger.info(f"Using cached model: {model_name} (hot-loaded)")
+            separator = _separator_cache[model_name]
+            # Update output directory for this run
+            separator.output_dir = output_dir
+        else:
+            # Create new separator and cache it
+            logger.info(f"Loading model: {model_name} (will be cached)")
+            separator = Separator(
+                output_dir=output_dir,
+                model_file_dir=models_dir,
+                output_format="WAV",
+                normalization_threshold=kwargs.get("normalization", 0.9)
+            )
+            separator.load_model(model_name)
+            _separator_cache[model_name] = separator
+            _current_cached_model = model_name
+        
+        # Run separation
         output_files = separator.separate(input_file)
         logger.info(f"audio-separator produced: {output_files}")
         return output_files if output_files else []
     except Exception as e:
         logger.error(f"audio-separator failed for {model_name}: {e}")
         return []
+
+
+def clear_model_cache():
+    """Clear all cached models and free GPU memory.
+    
+    Call this on app exit or when memory pressure is detected.
+    """
+    global _separator_cache, _current_cached_model
+    _separator_cache.clear()
+    _current_cached_model = None
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    logger.info("Model cache cleared")
 
 
 
@@ -648,6 +689,11 @@ def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep
     # Zip if requested
     if export_zip:
         shutil.make_archive(output_dir, 'zip', output_dir)
+    
+    # Clear GPU cache after processing to free memory (Performance Optimization)
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        logger.debug("GPU cache cleared after separation")
 
 class SplitterWorker(QThread):
     progress_updated = pyqtSignal(str, int, str) # filename, progress, status

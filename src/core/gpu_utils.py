@@ -68,3 +68,37 @@ def get_device():
         import torch_directml
         return torch_directml.device()
     return torch.device(device_type)
+
+
+def configure_gpu_memory(fraction: float = 0.9):
+    """Configure GPU memory usage limits for better memory management.
+    
+    Args:
+        fraction: Maximum fraction of GPU memory to use (0.0 to 1.0).
+                  Default 0.9 (90%) leaves headroom for other processes.
+    
+    This helps reduce memory fragmentation and prevents OOM errors
+    by limiting how much VRAM PyTorch will allocate.
+    """
+    if torch.cuda.is_available():
+        try:
+            # Limit memory to prevent OOM and reduce fragmentation
+            torch.cuda.set_per_process_memory_fraction(fraction)
+            logger.info(f"GPU memory configured: {fraction*100:.0f}% limit")
+        except Exception as e:
+            # May fail on some CUDA versions or configurations
+            logger.debug(f"GPU memory configuration skipped: {e}")
+    else:
+        logger.debug("No CUDA GPU available, skipping memory configuration")
+
+
+def clear_gpu_cache():
+    """Clear GPU memory cache to free unused memory.
+    
+    Call this after intensive operations to release memory back to the system.
+    """
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+        logger.debug("GPU cache cleared")
+
