@@ -4,7 +4,7 @@
 
 **BeatDeStack Extended** is a professional-grade, locally hosted application designed to separate audio tracks into individual stems (Vocals, Drums, Bass, Guitar, Piano, Other) with studio-quality precision. Powered by state-of-the-art AI models (Demucs v4, MDX-Net, VR Arch), it guarantees complete data privacy, unlimited processing, and a suite of powerful audio enhancement tools—entirely free from subscriptions or cloud-based restrictions.
 
-![Splash Screen](resources/splash.png)
+![Splash Screen](resources/splashes/splash.png)
 
 ---
 
