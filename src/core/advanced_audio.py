@@ -6,8 +6,9 @@ import torchaudio
 import soundfile as sf
 import numpy as np
 from audio_separator.separator import Separator
-
-logger = logging.getLogger(__name__)
+from src.utils.logger import logger
+import src.core.dsp as dsp
+from src.core import constants
 
 class AdvancedAudioProcessor:
     def __init__(self, output_dir):
@@ -97,7 +98,7 @@ class AdvancedAudioProcessor:
         # 1. Ensemble Step (Optional)
         # Only run if we have the specific "Kim" model to add flavor/cleaning to Demucs.
         # If the user is already using Roformer as primary, this might be redundant unless Kim is present.
-        secondary_model = "Kim_Vocal_2.onnx"
+        secondary_model = constants.MODEL_KIM_VOCAL_2
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         models_dir = os.path.join(project_root, "models")
         
@@ -161,7 +162,7 @@ class AdvancedAudioProcessor:
         # AGGRESSIVE CLEANUP
         # Scan for temp files and model outputs to delete.
         import time
-        cleanup_patterns = ["_temp_", "(No Reverb)", "(Reverb)", "vocals_ensemble", "Kim_Vocal", "deverb"]
+        cleanup_patterns = constants.CLEANUP_PATTERNS
         
         for f in os.listdir(self.output_dir):
             full_path = os.path.join(self.output_dir, f)
@@ -184,121 +185,6 @@ class AdvancedAudioProcessor:
                         break
 
         return current_vocals
-
-    def apply_low_cut(self, data, sr, cutoff=80):
-        """Apply Butterworth High-Pass Filter."""
-        try:
-            from scipy.signal import butter, lfilter
-            nyq = 0.5 * sr
-            normal_cutoff = cutoff / nyq
-            b, a = butter(5, normal_cutoff, btype='high', analog=False)
-            
-            if len(data.shape) == 1:
-                return lfilter(b, a, data)
-            else:
-                filtered = np.zeros_like(data)
-                for i in range(data.shape[1]):
-                    filtered[:, i] = lfilter(b, a, data[:, i])
-                return filtered
-        except ImportError:
-            logger.warning("scipy not installed, skipping Low Cut.")
-            return data
-
-    def apply_eq(self, data, sr, low_gain_db, mid_gain_db, high_gain_db):
-        """Apply 3-Band EQ using torchaudio biquad filters.
-        
-        Args:
-            data: Audio data as numpy array (samples, channels) or (samples,)
-            sr: Sample rate
-            low_gain_db: Gain for low frequencies (100Hz)
-            mid_gain_db: Gain for mid frequencies (1000Hz)
-            high_gain_db: Gain for high frequencies (10000Hz)
-        """
-        if low_gain_db == 0 and mid_gain_db == 0 and high_gain_db == 0:
-            return data
-            
-        try:
-            # Convert to Torch tensor -> Apply EQ -> Convert back to numpy
-            tensor = torch.tensor(data.T).float()  # (channels, time)
-            
-            if low_gain_db != 0:
-                tensor = torchaudio.functional.equalizer_biquad(tensor, sr, center_freq=100, gain=low_gain_db, Q=1.0)
-            if mid_gain_db != 0:
-                tensor = torchaudio.functional.equalizer_biquad(tensor, sr, center_freq=1000, gain=mid_gain_db, Q=1.0)
-            if high_gain_db != 0:
-                tensor = torchaudio.functional.equalizer_biquad(tensor, sr, center_freq=10000, gain=high_gain_db, Q=1.0)
-                
-            return tensor.t().numpy()
-
-        except Exception as e:
-            logger.warning(f"EQ failed: {e}")
-            return data
-
-    def apply_compressor(self, data, sr, intensity=0):
-        """Apply soft-knee compression."""
-        if intensity <= 0: return data
-        
-        # Simple RMS compressor implementation
-        # Intensity 0-100 maps to Threshold/Ratio aggressiveness
-        threshold_db = -10 - (intensity * 0.3) # -10dB to -40dB
-        ratio = 1.0 + (intensity * 0.05)       # 1.0 to 6.0
-        
-        # RMS window
-        window_size = int(sr * 0.01) # 10ms
-        
-        # Calculate RMS envelope
-        power = data ** 2
-        # Simple moving average for envelope (inefficient loop, optimize with convolution)
-        # Using scipy if available otherwise skip complex logic
-        try:
-             # Just use global normalization as a "limiter" approach for simplicity given we are in python
-             # A real compressor needs lookahead.
-             # Let's do a static wave-shaper "Soft Clipper" which acts like a limiter/saturator
-             # punch = softer saturation curve
-             
-             # k controls the "knee"
-             k = intensity / 20.0 # 0 to 5
-             if k == 0: return data
-             
-             # Soft clipping function: f(x) = x - (x^3)/3  (valid for -1..1)
-             # or tanh based
-             
-             # Let's use Tanh for smooth limiting (Punch)
-             # Boost gain then Tanh
-             pre_gain = 1.0 + (intensity / 50.0) # 1x to 3x gain
-             
-             compressed = np.tanh(data * pre_gain)
-             
-             # Normalize max peak back to original if needed, but punch usually implies "louder"
-             # So we leave it as is (limited to -1..1 by tanh)
-             return compressed
-             
-        except Exception:
-             return data
-
-    def apply_exciter(self, data, sr, intensity=0):
-         """Apply harmonic excitation (warmth)."""
-         if intensity <= 0: return data
-         
-         # Generate harmonics using simple non-linearity
-         # f(x) = x + alpha * x^2 (even harmonics = warmth) ?
-         # or x + alpha * tanh(x) ?
-         
-         alpha = intensity / 200.0 # 0 to 0.5 mix
-         
-         # Tube-like distortion: mixture of even and odd
-         # Common approach: x + a * x^2
-         
-         # Create saturation layer
-         saturation = np.tanh(data * 2) 
-         
-         # High-pass the saturation so we only add harmonics to mid/highs (prevent muddy bass)
-         # If no scipy, just full band
-         
-         # Mix back
-         # wet/dry
-         enhanced = (1.0 - alpha) * data + alpha * saturation
-         return enhanced
 
 
 def apply_audio_enhancement(vocals_file, output_dir, input_file=None, dereverb_intensity=0, deecho_intensity=0, 
@@ -395,31 +281,21 @@ def apply_audio_enhancement(vocals_file, output_dir, input_file=None, dereverb_i
             # DSP fallback: high-pass filter to reduce reverb tail
             if not dereverb_applied:
                 try:
-                    from scipy.signal import butter, lfilter
-                    
-                    def highpass_filter(data, cutoff, fs, order=2):
-                        nyq = 0.5 * fs
-                        normal_cutoff = cutoff / nyq
-                        b, a = butter(order, normal_cutoff, btype='high', analog=False)
-                        return lfilter(b, a, data)
-                    
                     # Reverb typically has more energy in lower frequencies
                     # High-pass filter attenuates reverb tail
                     cutoff = 80 + (dereverb_intensity * 2)  # 80-280Hz based on intensity
                     blend = dereverb_intensity / 100.0 * 0.3  # Max 30% blend to preserve bass
                     
                     if len(current_data.shape) == 1:
-                        filtered = highpass_filter(current_data, cutoff, sr)
+                        filtered = dsp.highpass_filter(current_data, cutoff, sr)
                         current_data = current_data * (1 - blend) + filtered * blend
                     else:
                         for ch in range(current_data.shape[1]):
-                            filtered = highpass_filter(current_data[:, ch], cutoff, sr)
+                            filtered = dsp.highpass_filter(current_data[:, ch], cutoff, sr)
                             current_data[:, ch] = current_data[:, ch] * (1 - blend) + filtered * blend
                     
                     current_data = np.clip(current_data, -1.0, 1.0)
                     logger.info("De-Reverb applied successfully (DSP high-pass)")
-                except ImportError:
-                    logger.warning("scipy not available for De-Reverb fallback")
                 except Exception as e:
                     logger.warning(f"De-Reverb DSP fallback failed: {e}")
         
@@ -462,24 +338,14 @@ def apply_audio_enhancement(vocals_file, output_dir, input_file=None, dereverb_i
             if not deecho_applied:
                 try:
                     # Echo typically occurs at ~50-200ms delay
-                    # We use a simple subtraction of delayed signal
                     delay_ms = 100  # Typical slapback echo delay
-                    delay_samples = int(sr * delay_ms / 1000)
                     decay = 0.3 + (deecho_intensity / 100.0) * 0.3  # 0.3-0.6 decay
                     
-                    def remove_echo(data, delay, decay_factor):
-                        """Simple echo removal by subtracting delayed signal"""
-                        result = data.copy()
-                        if len(data) > delay:
-                            # Subtract the estimated echo
-                            result[delay:] = result[delay:] - data[:-delay] * decay_factor
-                        return result
-                    
                     if len(current_data.shape) == 1:
-                        current_data = remove_echo(current_data, delay_samples, decay)
+                        current_data = dsp.remove_echo(current_data, sr, delay_ms, decay)
                     else:
                         for ch in range(current_data.shape[1]):
-                            current_data[:, ch] = remove_echo(current_data[:, ch], delay_samples, decay)
+                            current_data[:, ch] = dsp.remove_echo(current_data[:, ch], sr, delay_ms, decay)
                     
                     current_data = np.clip(current_data, -1.0, 1.0)
                     logger.info("De-Echo applied successfully (DSP comb filter)")
@@ -521,57 +387,17 @@ def apply_audio_enhancement(vocals_file, output_dir, input_file=None, dereverb_i
                 except Exception as e:
                     logger.warning(f"De-Noise AI model not available: {e}, trying DSP fallback...")
             
-            # DSP fallback: spectral gating
+            # DSP fallback: spectral gating / noisereduce
             if not denoise_applied:
                 try:
-                    # Try noisereduce library first
-                    import noisereduce as nr
                     blend = denoise_intensity / 100.0
-                    if len(current_data.shape) == 1:
-                        reduced = nr.reduce_noise(y=current_data, sr=sr, prop_decrease=blend)
-                    else:
-                        # Process each channel
-                        reduced = np.zeros_like(current_data)
-                        for ch in range(current_data.shape[1]):
-                            reduced[:, ch] = nr.reduce_noise(y=current_data[:, ch], sr=sr, prop_decrease=blend)
-                    current_data = reduced
-                    logger.info("De-Noise applied successfully (noisereduce)")
+                    current_data = dsp.apply_noise_reduction(current_data, sr, blend)
+                    
+                    current_data = np.clip(current_data, -1.0, 1.0)
+                    logger.info("De-Noise applied successfully (DSP)")
                     denoise_applied = True
-                except ImportError:
-                    logger.warning("noisereduce not installed, trying scipy fallback...")
-                    try:
-                        # Simple spectral subtraction using scipy
-                        from scipy import signal
-                        from scipy.ndimage import uniform_filter1d
-                        
-                        def spectral_gate(data, threshold_factor=0.1):
-                            """Simple spectral gating for noise reduction"""
-                            # Compute STFT
-                            f, t, Zxx = signal.stft(data, fs=sr, nperseg=2048)
-                            # Estimate noise floor from quietest parts
-                            mag = np.abs(Zxx)
-                            noise_floor = np.percentile(mag, 10, axis=1, keepdims=True)
-                            # Apply gate
-                            mask = mag > (noise_floor * (1 + threshold_factor * 10))
-                            Zxx_cleaned = Zxx * mask
-                            # Inverse STFT
-                            _, cleaned = signal.istft(Zxx_cleaned, fs=sr, nperseg=2048)
-                            return cleaned[:len(data)]
-                        
-                        blend = denoise_intensity / 100.0
-                        if len(current_data.shape) == 1:
-                            cleaned = spectral_gate(current_data, blend)
-                            current_data = current_data * (1 - blend) + cleaned * blend
-                        else:
-                            for ch in range(current_data.shape[1]):
-                                cleaned = spectral_gate(current_data[:, ch], blend)
-                                current_data[:len(cleaned), ch] = current_data[:len(cleaned), ch] * (1 - blend) + cleaned * blend
-                        current_data = np.clip(current_data, -1.0, 1.0)
-                        logger.info("De-Noise applied successfully (spectral gating)")
-                    except ImportError:
-                        logger.warning("scipy not available for De-Noise fallback - install with: pip install scipy")
-                    except Exception as e:
-                        logger.warning(f"De-Noise DSP fallback failed: {e}")
+                except Exception as e:
+                    logger.warning(f"De-Noise DSP fallback failed: {e}")
         
         # Apply Vocal Clarity if requested (uses Kim_Vocal_2)
         if clarity_intensity > 0 and input_file:
@@ -613,12 +439,8 @@ def apply_audio_enhancement(vocals_file, output_dir, input_file=None, dereverb_i
                     # boost 3kHz by context amount
                     boost_db = clarity_intensity / 10.0 # up to +10dB
                     
-                    # Using the apply_eq helper logic (re-instantiated if needed or inline)
-                    # Since we are inside the function, let's just use the helper method on a temp instance
-                    temp_processor_dsp = AdvancedAudioProcessor(output_dir)
-                    # Boost High Mids (3-5kHz range, represented by 'mid' or 'high' loosely)
-                    # We'll treat it as a "High" shelf boost effectively or mid boost
-                    current_data = temp_processor_dsp.apply_eq(current_data, sr, low_gain_db=0, mid_gain_db=boost_db, high_gain_db=boost_db/2)
+                    # Boost High Mids (3-5kHz range)
+                    current_data = dsp.apply_eq(current_data, sr, low_gain_db=0, mid_gain_db=boost_db, high_gain_db=boost_db/2)
                     current_data = np.clip(current_data, -1.0, 1.0)
                     logger.info("Vocal Clarity applied successfully (DSP Presence Boost)")
                 except Exception as e:
@@ -630,7 +452,7 @@ def apply_audio_enhancement(vocals_file, output_dir, input_file=None, dereverb_i
             logger.info(f"Applying Ensemble blend at {ensemble_intensity}%...")
             try:
                 # Use MDX_Extra for additional vocal extraction
-                separator.load_model(model_filename="UVR-MDX-NET-Voc_FT.onnx")
+                separator.load_model(model_filename=constants.MODEL_MDX_VOCAL_FT)
                 outputs = separator.separate(input_file)
                 
                 mdx_vocals = None
@@ -654,29 +476,18 @@ def apply_audio_enhancement(vocals_file, output_dir, input_file=None, dereverb_i
         if bass_boost > 0:
             logger.info(f"Applying Bass Boost at {bass_boost}%...")
             try:
-                # Simple low-pass filter for bass frequencies
-                from scipy.signal import butter, lfilter
-                
-                def butter_lowpass(cutoff, fs, order=5):
-                    nyq = 0.5 * fs
-                    normal_cutoff = cutoff / nyq
-                    b, a = butter(order, normal_cutoff, btype='low', analog=False)
-                    return b, a
-                
                 # Extract and boost bass (below 200Hz)
-                b, a = butter_lowpass(200, sr, order=3)
-                
                 if len(current_data.shape) == 1:
-                    bass = lfilter(b, a, current_data)
+                    bass = dsp.lowpass_filter(current_data, 200, sr, order=3)
                 else:
-                    bass = np.apply_along_axis(lambda x: lfilter(b, a, x), 0, current_data)
+                    bass = np.zeros_like(current_data)
+                    for ch in range(current_data.shape[1]):
+                        bass[:, ch] = dsp.lowpass_filter(current_data[:, ch], 200, sr, order=3)
                 
                 blend = bass_boost / 100.0
                 current_data = current_data + bass * blend * 0.5
                 current_data = np.clip(current_data, -1.0, 1.0)
                 logger.info("Bass Boost applied successfully")
-            except ImportError:
-                logger.warning("scipy not available for Bass Boost - install with: pip install scipy")
             except Exception as e:
                 logger.warning(f"Bass Boost failed: {e}")
         
@@ -707,29 +518,24 @@ def apply_audio_enhancement(vocals_file, output_dir, input_file=None, dereverb_i
         # Apply Low Cut (High Pass) if requested
         if low_cut:
             logger.info("Applying Low Cut Filter (80Hz)...")
-            # Create temp instance for helper access
-            temp_processor = AdvancedAudioProcessor(output_dir) 
-            current_data = temp_processor.apply_low_cut(current_data, sr)
+            current_data = dsp.highpass_filter(current_data, 80, sr)
 
         # Apply 3-Band EQ if requested
         if eq_low != 0 or eq_mid != 0 or eq_high != 0:
             logger.info(f"Applying EQ: Low={eq_low}dB, Mid={eq_mid}dB, High={eq_high}dB")
-            temp_processor = AdvancedAudioProcessor(output_dir)
-            current_data = temp_processor.apply_eq(current_data, sr, eq_low, eq_mid, eq_high)
+            current_data = dsp.apply_eq(current_data, sr, eq_low, eq_mid, eq_high)
             # Clip after EQ
             current_data = np.clip(current_data, -1.0, 1.0)
             
         # Apply Exciter (Warmth)
         if exciter_intensity > 0:
             logger.info(f"Applying Exciter (Warmth): {exciter_intensity}%")
-            temp_processor = AdvancedAudioProcessor(output_dir)
-            current_data = temp_processor.apply_exciter(current_data, sr, exciter_intensity)
+            current_data = dsp.apply_exciter(current_data, sr, exciter_intensity)
             
         # Apply Compressor (Punch)
         if compressor_intensity > 0:
             logger.info(f"Applying Compressor (Punch): {compressor_intensity}%")
-            temp_processor = AdvancedAudioProcessor(output_dir)
-            current_data = temp_processor.apply_compressor(current_data, sr, compressor_intensity)
+            current_data = dsp.apply_compressor(current_data, sr, compressor_intensity)
         
         # Save final result
         output_file = os.path.join(output_dir, "vocals_enhanced.wav")
@@ -740,7 +546,7 @@ def apply_audio_enhancement(vocals_file, output_dir, input_file=None, dereverb_i
         # We also added retry logic for file locks.
         import time
         
-        cleanup_patterns = ["_temp_", "(No Reverb)", "(Reverb)", "vocals_ensemble", "vocals_enhanced"]
+        cleanup_patterns = constants.CLEANUP_PATTERNS
         
         for f in os.listdir(output_dir):
             full_path = os.path.join(output_dir, f)

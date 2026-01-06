@@ -136,22 +136,61 @@ QScrollArea {{
 }}
 
 QComboBox {{
-    background-color: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background-color: {COLORS['surface']};
+    border: 1px solid rgba(255, 255, 255, 0.15);
     border-radius: 5px;
-    padding: 5px;
+    padding: 5px 10px;
     color: {COLORS['text']};
+    min-height: 20px;
+}}
+
+QComboBox:hover {{
+    border: 1px solid {COLORS['primary']};
 }}
 
 QComboBox::drop-down {{
     border: none;
+    width: 20px;
 }}
 
 QComboBox QAbstractItemView {{
-    background-color: #1A1A1A;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    selection-background-color: rgba(0, 212, 255, 0.15);
-    color: white;
+    background-color: {COLORS['surface']};
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    selection-background-color: rgba(0, 212, 255, 0.3);
+    color: {COLORS['text']};
+    padding: 5px;
+    outline: none;
+}}
+
+QComboBox QAbstractItemView::item {{
+    padding: 5px 10px;
+    min-height: 25px;
+}}
+
+QComboBox QAbstractItemView::item:hover {{
+    background-color: rgba(0, 212, 255, 0.15);
+}}
+
+/* Force dark background for combo popup */
+QComboBox QListView {{
+    background-color: {COLORS['surface']};
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: {COLORS['text']};
+    outline: none;
+}}
+
+QComboBox QListView::item {{
+    background-color: {COLORS['surface']};
+    color: {COLORS['text']};
+    padding: 6px 10px;
+}}
+
+QComboBox QListView::item:selected {{
+    background-color: rgba(0, 212, 255, 0.25);
+}}
+
+QComboBox QListView::item:hover {{
+    background-color: rgba(0, 212, 255, 0.15);
 }}
 
 QMenu {{

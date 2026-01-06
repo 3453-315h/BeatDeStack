@@ -61,6 +61,13 @@ class OutputPanel(QGroupBox):
         self.chk_midi = QCheckBox("Export as MIDI")
         layout.addWidget(self.chk_midi)
         layout.addWidget(self.chk_keep)
+        
+        # BPM/Key in filename
+        self.chk_bpm_key_filename = QCheckBox("Include BPM/Key in Filename")
+        self.chk_bpm_key_filename.setToolTip("Add detected BPM and key to output filenames (e.g., song_128bpm_Amin.mp3)")
+        self.chk_bpm_key_filename.setChecked(False)
+        layout.addWidget(self.chk_bpm_key_filename)
+        
         layout.addWidget(self.chk_auto_open)
         
         self.setLayout(layout)
@@ -85,7 +92,8 @@ class OutputPanel(QGroupBox):
             "bit_depth": self.combo_depth.currentText(),
             "export_zip": self.chk_zip.isChecked(),
             "export_midi": self.chk_midi.isChecked(),
-            "keep_original": self.chk_keep.isChecked()
+            "keep_original": self.chk_keep.isChecked(),
+            "include_bpm_key": self.chk_bpm_key_filename.isChecked()
         }
     
     def is_auto_open_enabled(self):

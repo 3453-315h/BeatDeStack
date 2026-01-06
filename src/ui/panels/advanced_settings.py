@@ -130,6 +130,14 @@ class AdvancedSettingsPanel(QGroupBox):
         clip_layout.addWidget(self.combo_clip)
         layout.addLayout(clip_layout)
         
+        # FP16 (Half Precision)
+        fp16_layout = QHBoxLayout()
+        self.chk_fp16 = QCheckBox("FP16 (Half Precision)")
+        self.chk_fp16.setToolTip("Use half-precision for ~2x less VRAM and faster inference. May slightly affect quality.")
+        self.chk_fp16.setChecked(False)
+        fp16_layout.addWidget(self.chk_fp16)
+        layout.addLayout(fp16_layout)
+        
         self.setLayout(layout)
     
     def _on_toggle(self, checked):
@@ -171,6 +179,7 @@ class AdvancedSettingsPanel(QGroupBox):
             "batch_size": self.spin_batch_size.value(),
             "normalization": self.spin_norm.value(),
             "clip_mode": self.combo_clip.currentText(),
+            "fp16": self.chk_fp16.isChecked(),
             "ensemble_enabled": self.chk_ensemble.isChecked(),
             "ensemble_models": self.ensemble_models,
             "ensemble_algo": self.ensemble_algo

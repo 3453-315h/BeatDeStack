@@ -22,20 +22,10 @@ class WaveformLoader(QThread):
         try:
             # Bulletproof loading using ffmpeg CLI directly
             import subprocess
-            import shutil
+            from src.utils.resource_utils import get_ffmpeg_path
             
-            # Look for bundled ffmpeg in BeatDeStack/bin/ffmpeg.exe
-            # This script is in src/ui/waveform.py -> ../../bin/ffmpeg.exe
-            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            bundled_ffmpeg = os.path.join(base_dir, "bin", "ffmpeg.exe")
-            
-            if os.path.exists(bundled_ffmpeg):
-                ffmpeg_path = bundled_ffmpeg
-            else:
-                # Fallback to system path if not found in bin
-                ffmpeg_path = shutil.which("ffmpeg")
-                if not ffmpeg_path:
-                    ffmpeg_path = "ffmpeg"
+            # Get bundled or system ffmpeg path
+            ffmpeg_path = get_ffmpeg_path()
 
             # Command: Decode to float32 linear PCM, mono, 44100Hz, stdout
             # -v error : quiet

@@ -10,6 +10,7 @@ import soundfile as sf
 import demucs.separate
 from PyQt6.QtCore import QThread, pyqtSignal
 from src.utils.logger import logger
+from src.core import constants
 
 try:
     from src.core.advanced_audio import AdvancedAudioProcessor, apply_audio_enhancement
@@ -36,7 +37,57 @@ torchaudio.load = custom_load
 torchaudio.save = custom_save
 
 # Default Demucs models that use demucs.separate
-DEMUCS_MODELS = ["htdemucs", "htdemucs_ft", "htdemucs_6s", "mdx_extra", "hdemucs_mmi"]
+DEMUCS_MODELS = [constants.MODEL_HTDEMUCS, constants.MODEL_HTDEMUCS_FT, constants.MODEL_HTDEMUCS_6S, "mdx_extra", "hdemucs_mmi"]
+
+# Quality presets: (shifts, overlap)
+QUALITY_PRESETS = {
+    0: {"shifts": 0, "overlap": 0.1},     # Fast
+    1: {"shifts": 1, "overlap": 0.25},    # Balanced (default)
+    2: {"shifts": 2, "overlap": 0.25},    # Best
+}
+
+# Audio format constants
+DEFAULT_SAMPLE_RATE = 44100
+DEFAULT_N_FFT = 2048
+
+
+def _get_audio_subtype(format_ext: str, bit_depth: str) -> str | None:
+    """Get soundfile subtype based on format and bit depth."""
+    if format_ext in ['wav', 'flac', 'aiff']:
+        if "32" in bit_depth:
+            return "FLOAT"
+        elif "24" in bit_depth:
+            return "PCM_24"
+        else:
+            return "PCM_16"
+    return None
+
+
+def _apply_pitch_shift(audio: torch.Tensor, sample_rate: int, semitones: int) -> torch.Tensor:
+    """Apply pitch shift to audio tensor."""
+    if semitones == 0:
+        return audio
+    try:
+        effect = torchaudio.transforms.PitchShift(sample_rate, n_steps=semitones)
+        return effect(audio)
+    except Exception as e:
+        logger.error(f"Pitch shift failed: {e}")
+        return audio
+
+
+def _apply_time_stretch(audio: torch.Tensor, speed: float) -> torch.Tensor:
+    """Apply time stretch to audio tensor."""
+    if speed == 1.0 or abs(speed - 1.0) <= 0.01:
+        return audio
+    try:
+        stft = torch.stft(audio, n_fft=DEFAULT_N_FFT, hop_length=None, win_length=None, return_complex=True)
+        stretcher = torchaudio.transforms.TimeStretch(hop_length=DEFAULT_N_FFT // 4, n_freq=DEFAULT_N_FFT // 2 + 1)
+        stft_stretched = stretcher(stft, speed)
+        target_len = int(audio.shape[1] / speed)
+        return torch.istft(stft_stretched, n_fft=DEFAULT_N_FFT, length=target_len)
+    except Exception as e:
+        logger.error(f"Time stretch failed: {e}")
+        return audio
 
 def _is_demucs_model(model_name):
     """Check if model is a Demucs model (uses demucs.separate)."""
@@ -80,99 +131,55 @@ def _run_audio_separator(input_file, model_name, output_dir, **kwargs):
         return []
 
 
-def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep_original, **kwargs):
-    filename = os.path.basename(input_file)
-    base_name = os.path.splitext(filename)[0]
-    os.makedirs(output_dir, exist_ok=True)
 
-    # Models to run
-    models = [kwargs.get("model", "htdemucs")]
-    if kwargs.get("ensemble_enabled", False):
-        ens_models = kwargs.get("ensemble_models", [])
-        if ens_models:
-            models = ens_models
-            logger.info(f"Ensemble Mode Enabled: Running models {models}")
 
-    temp_root = os.path.join(output_dir, "temp_ensemble")
-    if os.path.exists(temp_root):
-        shutil.rmtree(temp_root)
-    os.makedirs(temp_root, exist_ok=True)
-
-    # Automatic Input Conversion (Safety Pre-Processor)
-    # Some libraries (audio-separator, soundfile) struggle with m4a/mp3 on Windows.
-    # We convert everything to a clean 16-bit WAV to guarantee compatibility.
-    original_input_file = input_file
-    converted_wav = None
+def _ensure_input_is_wav(input_file, temp_root, base_name):
+    """Ensure input is WAV format for compatibility, converting if necessary."""
+    if input_file.lower().endswith(".wav"):
+        return input_file
+        
+    logger.info(f"Input is not WAV. Converting to temporary WAV for processing: {input_file}")
     
     try:
-        if not input_file.lower().endswith(".wav"):
-            logger.info(f"Input is not WAV. Converting to temporary WAV for processing: {input_file}")
-            
-            # Use local ffmpeg if available
-            ffmpeg = shutil.which("ffmpeg")
-            if not ffmpeg: ffmpeg = "ffmpeg"
-            
-            # CRITICAL: We must name the temp file {base_name}.wav
-            # Otherwise Demucs output folder matches input filename, causing mismatch with expected base_name
-            converted_wav = os.path.join(temp_root, f"{base_name}.wav")
-            
-            # ffmpeg -i input -y -ac 2 -ar 44100 output.wav
-            cmd = [
-                ffmpeg, "-y",
-                "-v", "error",
-                "-i", input_file,
-                "-ac", "2", # Force Stereo
-                "-ar", "44100", # Standard SR
-                converted_wav
-            ]
-            
-            startupinfo = None
-            if os.name == 'nt':
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        from src.utils.resource_utils import get_ffmpeg_path
+        ffmpeg = get_ffmpeg_path()
+        
+        # CRITICAL: We must name the temp file {base_name}.wav
+        converted_wav = os.path.join(temp_root, f"{base_name}.wav")
+        
+        cmd = [
+            ffmpeg, "-y",
+            "-v", "error",
+            "-i", input_file,
+            "-ac", "2",      # Force Stereo
+            "-ar", "44100",  # Standard SR
+            converted_wav
+        ]
+        
+        startupinfo = None
+        if os.name == 'nt':
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 
-            subprocess.run(cmd, startupinfo=startupinfo, check=True)
+        subprocess.run(cmd, startupinfo=startupinfo, check=True)
+        
+        if os.path.exists(converted_wav):
+            logger.info(f"Conversion successful: {converted_wav}")
+            return converted_wav
+        else:
+            logger.warning("Conversion output not found, proceeding with original.")
+            return input_file
             
-            if os.path.exists(converted_wav):
-                input_file = converted_wav
-                logger.info(f"Conversion successful: {input_file}")
-            else:
-                logger.warning("Conversion failed, attempting to process original file.")
-                
     except Exception as e:
         logger.error(f"Pre-conversion failed: {e}. Proceeding with original file.")
+        return input_file
 
-    # --- End Conversion Logic ---
-        
-    # Determine strict stem count for validation
-    target_stem_count = 4 # Default standard
-    if stem_count == 2: target_stem_count = 2
-    elif stem_count == 6: target_stem_count = 6
-    # Common options
-    shifts = 1
-    overlap = 0.25
-    segment = 0
-    jobs = 0
-    clip_mode = "rescale"
-    
-    if quality == 0: # Fast
-        shifts = 0
-        overlap = 0.1
-    elif quality == 2: # Best
-        shifts = 2
-        overlap = 0.25
 
-    # Overrides
-    if kwargs.get("shifts") is not None: shifts = kwargs["shifts"]
-    if kwargs.get("overlap") is not None: overlap = kwargs["overlap"]
-    if kwargs.get("segment") is not None: segment = kwargs["segment"]
-    if kwargs.get("jobs") is not None: jobs = kwargs["jobs"]
-    if kwargs.get("clip_mode"): clip_mode = kwargs["clip_mode"]
 
-    # Track audio-separator outputs separately
+def _run_separation_models(models, input_file, temp_root, base_name, stem_count, shifts, overlap, segment, jobs, clip_mode, **kwargs):
+    """Run separation for each model in the list (Demucs or others)."""
     audio_sep_outputs = []
     
-    # Run separation for each model
     for model_name in models:
         logger.info(f"Running Model: {model_name}")
         
@@ -193,11 +200,7 @@ def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep
             # Format (Intermediate is always WAV/Float32 for precision blending)
             args.append("--float32") 
             args.append("--filename")
-            # Force standard naming for 2-stems (Demucs defaults to 'no_vocals' which we want as 'instrumental')
-            if stem_count == 2:
-                args.append("{track}/{stem}.wav") 
-            else:
-                args.append("{track}/{stem}.wav")
+            args.append("{track}/{stem}.wav")
             
             # GPU
             from src.core.gpu_utils import get_gpu_info
@@ -223,7 +226,6 @@ def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep
             audio_sep_outputs.extend(sep_outputs)
             
             # Rename outputs to standard stem names (vocals.wav, instrumental.wav)
-            # audio-separator often outputs "Input_stem.wav" or "Input_(Vocals)_Roformer.wav"
             for f in sep_outputs:
                 full_path = os.path.join(model_temp_dir, f)
                 if not os.path.exists(full_path): continue
@@ -245,6 +247,62 @@ def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep
                         logger.info(f"Standardized stem name: {f} -> {new_name}")
                     except Exception as e:
                         logger.warning(f"Failed to rename stem {f}: {e}")
+    
+    return audio_sep_outputs
+
+
+def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep_original, **kwargs):
+    filename = os.path.basename(input_file)
+    base_name = os.path.splitext(filename)[0]
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Models to run
+    models = [kwargs.get("model", constants.MODEL_HTDEMUCS)]
+    if kwargs.get("ensemble_enabled", False):
+        ens_models = kwargs.get("ensemble_models", [])
+        if ens_models:
+            models = ens_models
+            logger.info(f"Ensemble Mode Enabled: Running models {models}")
+
+    temp_root = os.path.join(output_dir, "temp_ensemble")
+    if os.path.exists(temp_root):
+        shutil.rmtree(temp_root)
+    os.makedirs(temp_root, exist_ok=True)
+
+    # Automatic Input Conversion (Safety Pre-Processor)
+    original_input_file = input_file
+    input_file = _ensure_input_is_wav(original_input_file, temp_root, base_name)
+    
+    # Get quality preset settings
+    preset = QUALITY_PRESETS.get(quality, QUALITY_PRESETS[1])
+    shifts = preset["shifts"]
+    overlap = preset["overlap"]
+    segment = 0
+    jobs = 0
+    clip_mode = "rescale"
+
+    # Overrides
+    if kwargs.get("shifts") is not None: shifts = kwargs["shifts"]
+    if kwargs.get("overlap") is not None: overlap = kwargs["overlap"]
+    if kwargs.get("segment") is not None: segment = kwargs["segment"]
+    if kwargs.get("jobs") is not None: jobs = kwargs["jobs"]
+    if kwargs.get("clip_mode"): clip_mode = kwargs["clip_mode"]
+
+
+    # Run separation for each model
+    audio_sep_outputs = _run_separation_models(
+        models=models,
+        input_file=input_file,
+        temp_root=temp_root,
+        base_name=base_name,
+        stem_count=stem_count,
+        shifts=shifts,
+        overlap=overlap,
+        segment=segment,
+        jobs=jobs,
+        clip_mode=clip_mode,
+        **kwargs
+    )
 
     # Blending / Moving Logic (Unified for ALL models)
     # Just verify the first model produced something
@@ -267,17 +325,16 @@ def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep
     elif output_format == "aiff": final_ext = "aiff"
     
     # Process each stem
-    # Process each stem
     backing_accumulator = None
     backing_name = None
     backing_sr = None
     
     # Determine if we need a backing track
-    mode = kwargs.get("mode", "standard")
-    if mode == "guitar_only": backing_name = "no_guitar"
-    elif mode == "piano_only": backing_name = "no_piano"
-    elif mode == "drums_only": backing_name = "no_drums"
-    elif mode == "bass_only": backing_name = "no_bass"
+    mode = kwargs.get("mode", constants.MODE_STANDARD)
+    if mode == constants.MODE_GUITAR: backing_name = "no_guitar"
+    elif mode == constants.MODE_PIANO: backing_name = "no_piano"
+    elif mode == constants.MODE_DRUMS: backing_name = "no_drums"
+    elif mode == constants.MODE_BASS: backing_name = "no_bass"
 
     for stem_file in stems:
         if not stem_file.endswith(".wav"): continue
@@ -287,19 +344,21 @@ def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep
         # Filter based on mode
         should_keep = True
         
-        if mode == "vocals_only" and "vocals" not in stem_name: should_keep = False
-        elif mode == "instrumental" and "no_vocals" not in stem_name and "instrumental" not in stem_name: should_keep = False
-        elif mode == "drums_only" and "drums" not in stem_name: should_keep = False
-        elif mode == "bass_only" and "bass" not in stem_name: should_keep = False
-        elif mode == "guitar_only" and "guitar" not in stem_name: should_keep = False
-        elif mode == "piano_only" and "piano" not in stem_name: should_keep = False
+        if mode == constants.MODE_VOCALS and "vocals" not in stem_name: should_keep = False
+        elif mode == constants.MODE_INSTRUMENTAL and "no_vocals" not in stem_name and "instrumental" not in stem_name: should_keep = False
+        elif mode == constants.MODE_DRUMS and "drums" not in stem_name: should_keep = False
+        elif mode == constants.MODE_BASS and "bass" not in stem_name: should_keep = False
+        elif mode == constants.MODE_GUITAR and "guitar" not in stem_name: should_keep = False
+        elif mode == constants.MODE_PIANO and "piano" not in stem_name: should_keep = False
         
         # Collect waveforms for THIS stem
         waveforms = []
+        sample_rate = None
         for model_name in models:
             p = os.path.join(temp_root, model_name, base_name, stem_file)
             if os.path.exists(p):
-                w, sr = torchaudio.load(p) 
+                w, sr = torchaudio.load(p)
+                sample_rate = sr  # Track sample rate from loaded file
                 waveforms.append(w)
         
         if not waveforms: continue
@@ -310,7 +369,7 @@ def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep
         stacked = torch.stack(waveforms)
         
         algo = kwargs.get("ensemble_algo", "Average (Mean)")
-        current_sr = sr 
+        current_sr = sample_rate
         
         if "Max" in algo:
             blended = torch.max(stacked, dim=0)[0]
@@ -371,33 +430,11 @@ def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep
         pitch = kwargs.get("pitch_shift", 0)
         speed = kwargs.get("time_stretch", 1.0)
         
-        if pitch != 0:
-            try:
-                # PitchShift expects waveform
-                eff = torchaudio.transforms.PitchShift(current_sr, n_steps=pitch)
-                blended = eff(blended)
-            except Exception as e:
-                logger.error(f"Pitch shift failed: {e}")
-                
-        if speed != 1.0 and abs(speed - 1.0) > 0.01:
-            try:
-                # TimeStretch requires complex spectrogram
-                n_fft = 2048
-                stft = torch.stft(blended, n_fft=n_fft, hop_length=None, win_length=None, return_complex=True)
-                stretcher = torchaudio.transforms.TimeStretch(hop_length=n_fft//4, n_freq=n_fft//2+1)
-                stft_stretched = stretcher(stft, speed)
-                # Estimate length
-                target_len = int(blended.shape[1] / speed)
-                blended = torch.istft(stft_stretched, n_fft=n_fft, length=target_len)
-            except Exception as e:
-                 logger.error(f"Time stretch failed: {e}")
+        blended = _apply_pitch_shift(blended, current_sr, pitch)
+        blended = _apply_time_stretch(blended, speed)
 
         # Generate Subtype if needed
-        subtype = None
-        if final_ext in ['wav', 'flac', 'aiff']:
-             if "32" in bit_depth: subtype = "FLOAT"
-             elif "24" in bit_depth: subtype = "PCM_24"
-             else: subtype = "PCM_16"
+        subtype = _get_audio_subtype(final_ext, bit_depth)
         
         # Save using sf.write directly
         src_np = blended.detach().cpu().t().numpy()
@@ -416,8 +453,11 @@ def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep
                  # Retry by writing WAV then converting
                  temp_wav = dst.replace(".mp3", ".wav")
                  sf.write(temp_wav, src_np, current_sr)
-                 subprocess.run(["ffmpeg", "-y", "-i", temp_wav, "-b:a", "320k", dst], 
+                 from src.utils.resource_utils import get_ffmpeg_path
+                 result = subprocess.run([get_ffmpeg_path(), "-y", "-i", temp_wav, "-b:a", "320k", dst], 
                                capture_output=True)
+                 if result.returncode != 0:
+                     logger.error(f"FFmpeg MP3 conversion failed: {result.stderr.decode()}")
                  if os.path.exists(temp_wav): os.remove(temp_wav)
 
         # Band Splitting (Low/Mid/High)
@@ -443,8 +483,6 @@ def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep
                 src_np = mid_stem.detach().cpu().t().numpy()
                 sf.write(path_mid, src_np, current_sr, subtype=subtype)
                 
-                sf.write(path_mid, src_np, current_sr, subtype=subtype)
-                
             except Exception as e:
                 logger.error(f"Band splitting failed for {stem_name}: {e}")
     
@@ -461,29 +499,15 @@ def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep
                   final_backing = resampler(final_backing)
                   backing_sr = target_sr
              
-             # Pitch/Time
+             # Pitch/Time using helper functions
              pitch = kwargs.get("pitch_shift", 0)
              speed = kwargs.get("time_stretch", 1.0)
              
-             if pitch != 0:
-                 eff = torchaudio.transforms.PitchShift(backing_sr, n_steps=pitch)
-                 final_backing = eff(final_backing)
-             
-             if speed != 1.0 and abs(speed - 1.0) > 0.01:
-                 # TimeStretch logic (simplified repetition from above)
-                 n_fft = 2048
-                 stft = torch.stft(final_backing, n_fft=n_fft, hop_length=None, win_length=None, return_complex=True)
-                 stretcher = torchaudio.transforms.TimeStretch(hop_length=n_fft//4, n_freq=n_fft//2+1)
-                 stft_stretched = stretcher(stft, speed)
-                 target_len = int(final_backing.shape[1] / speed)
-                 final_backing = torch.istft(stft_stretched, n_fft=n_fft, length=target_len)
+             final_backing = _apply_pitch_shift(final_backing, backing_sr, pitch)
+             final_backing = _apply_time_stretch(final_backing, speed)
 
              # Save
-             subtype = None
-             if final_ext in ['wav', 'flac', 'aiff']:
-                  if "32" in bit_depth: subtype = "FLOAT"
-                  elif "24" in bit_depth: subtype = "PCM_24"
-                  else: subtype = "PCM_16"
+             subtype = _get_audio_subtype(final_ext, bit_depth)
                   
              dst_backing = os.path.join(output_dir, f"{backing_name}.{final_ext}")
              src_np = final_backing.detach().cpu().t().numpy()
@@ -494,7 +518,10 @@ def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep
                  if not os.path.exists(dst_backing) or os.path.getsize(dst_backing) < 100:
                       temp_wav = dst_backing.replace(".mp3", ".wav")
                       sf.write(temp_wav, src_np, backing_sr)
-                      subprocess.run(["ffmpeg", "-y", "-i", temp_wav, "-b:a", "320k", dst_backing], capture_output=True)
+                      from src.utils.resource_utils import get_ffmpeg_path
+                      result = subprocess.run([get_ffmpeg_path(), "-y", "-i", temp_wav, "-b:a", "320k", dst_backing], capture_output=True)
+                      if result.returncode != 0:
+                          logger.error(f"FFmpeg MP3 conversion failed: {result.stderr.decode()}")
                       if os.path.exists(temp_wav): os.remove(temp_wav)
 
              logger.info(f"Created Backing Track: {backing_name}")
@@ -505,10 +532,10 @@ def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep
     # Cleanup Temp
     shutil.rmtree(temp_root, ignore_errors=True)
     
-    # Copy Original if requested
+    # Copy Original if requested (use original_input_file, not potentially converted input_file)
     if keep_original:
         try:
-            shutil.copy(input_file, os.path.join(output_dir, f"original.{final_ext}"))
+            shutil.copy(original_input_file, os.path.join(output_dir, f"original{os.path.splitext(original_input_file)[1]}"))
         except Exception as e:
             logger.warning(f"Failed to copy original file: {e}")
         
@@ -595,9 +622,9 @@ def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep
                     # Convert if extension mismatch (e.g. processor output WAV but we want MP3)
                     if not final_vocals.lower().endswith(f".{final_ext}"):
                          logger.info(f"Converting enhanced vocals to {final_ext}...")
-                         # Use ffmpeg for conversion
-                         ffmpeg = shutil.which("ffmpeg") or "ffmpeg"
-                         cmd = [ffmpeg, "-y", "-v", "error", "-i", final_vocals]
+                         # Use bundled or system ffmpeg for conversion
+                         from src.utils.resource_utils import get_ffmpeg_path
+                         cmd = [get_ffmpeg_path(), "-y", "-v", "error", "-i", final_vocals]
                          
                          if final_ext == "mp3":
                              cmd.extend(["-b:a", "320k"]) # High quality mp3
@@ -770,10 +797,30 @@ class SplitterWorker(QThread):
                             if not is_progress_bar:
                                 logger.info(f"[Worker] {line}")
                                 self.log_message.emit(f"[Worker] {line}")
-                                if "Separating" in line:
+                                
+                                # Detailed progress phase detection
+                                if "Loading" in line:
+                                    self.progress_updated.emit(filename, 10, "Loading Model...")
+                                elif "Running Model" in line:
+                                    # Extract model name if possible
+                                    model_part = line.split(":")[-1].strip() if ":" in line else ""
+                                    self.progress_updated.emit(filename, 15, f"Running: {model_part[:20]}...")
+                                elif "Separating" in line:
                                     self.progress_updated.emit(filename, 20, "Separating...")
-                                elif "Loading" in line:
-                                    self.progress_updated.emit(filename, 10, "Loading Models...")
+                                elif "Found Stems" in line:
+                                    self.progress_updated.emit(filename, 85, "Processing Stems...")
+                                elif "Applying" in line and "Enhancement" in line:
+                                    self.progress_updated.emit(filename, 88, "Applying Enhancements...")
+                                elif "Ultra Clean" in line or "Vocals Only" in line:
+                                    self.progress_updated.emit(filename, 88, "Ultra Clean Pipeline...")
+                                elif "De-Reverb" in line or "DeReverb" in line:
+                                    self.progress_updated.emit(filename, 90, "Removing Reverb...")
+                                elif "De-Noise" in line or "DeNoise" in line:
+                                    self.progress_updated.emit(filename, 91, "Removing Noise...")
+                                elif "Converting" in line:
+                                    self.progress_updated.emit(filename, 93, "Converting Format...")
+                                elif "Created" in line:
+                                    self.progress_updated.emit(filename, 94, "Writing Files...")
             
             if self.is_cancelled: return
 

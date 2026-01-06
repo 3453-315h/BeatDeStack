@@ -89,6 +89,16 @@ class QueueItemWidget(QWidget):
         self.name_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(self.name_label, 2, Qt.AlignmentFlag.AlignVCenter)
         
+        # BPM/Key info label
+        self.analysis_label = QLabel("")
+        self.analysis_label.setStyleSheet(f"color: {COLORS['accent']}; font-size: 11px;")
+        self.analysis_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        self.analysis_label.hide()  # Hidden until analysis complete
+        layout.addWidget(self.analysis_label, 1, Qt.AlignmentFlag.AlignVCenter)
+        
+        # Store analysis data
+        self.analysis_data = None
+        
         self.status_label = QLabel("Pending")
         self.status_label.setStyleSheet(f"color: {COLORS['text_dim']};")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
@@ -152,8 +162,17 @@ class QueueItemWidget(QWidget):
                     self.output_files = output_files # Update stored files
             elif "Pending" in status:
                 self.open_btn.hide()
-                self.drag_btn.hide()
                 self.cancel_btn.show()
+    
+    def set_analysis(self, analysis_data):
+        """Set BPM/Key analysis data and update display."""
+        self.analysis_data = analysis_data
+        if analysis_data and analysis_data.get('success'):
+            from src.core.analysis import format_analysis_string
+            info_text = format_analysis_string(analysis_data)
+            if info_text:
+                self.analysis_label.setText(info_text)
+                self.analysis_label.show()
                 
     def contextMenuEvent(self, event):
         from PyQt6.QtWidgets import QMenu

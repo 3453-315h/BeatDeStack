@@ -1,4 +1,4 @@
-# BeatDeStack Extended v3.7.0
+# BeatDeStack Extended v3.8.0
 
 **The Ultimate Offline AI Stem Separation & Audio Enhancement Tool.**
 
@@ -39,6 +39,36 @@ Turn your audio into editable MIDI notes!
 * **Seamless Integration**: Generates `.mid` files directly in your output folder.
 
 ---
+
+### 🎛️ Processing Presets (NEW in v3.8.0)
+
+Quickly apply optimized settings with built-in presets:
+
+* **Karaoke Master**: 2-stem instrumental with de-reverb
+* **Vocal Extract**: Ultra-clean acapella with de-reverb + de-noise
+* **Full Stems (DJ)**: 4-stem split for remixing
+* **Producer Pack**: 6-stem at 48kHz/24-bit
+* **Quick Preview**: Fast 2-stem for quick checks
+* **Save Custom Presets**: Create your own configurations
+
+### 🎵 BPM & Key Detection (NEW in v3.8.0)
+
+Automatically analyze your audio:
+
+* **BPM Detection**: Tempo estimation using librosa
+* **Key Detection**: Musical key via chroma feature analysis
+* **Display in Queue**: See BPM/Key info for each file
+* **Filename Option**: Include BPM/Key in output filenames (e.g., `song_128bpm_Amin_vocals.mp3`)
+
+### ⌨️ Keyboard Shortcuts (NEW in v3.8.0)
+
+| Key | Action |
+|-----|--------|
+| `Space` | Play/Pause |
+| `1-6` | Toggle mute for stems |
+| `Shift+1-6` | Toggle solo for stems |
+| `Ctrl+O` | Open files |
+| `Escape` | Stop playback |
 
 ---
 

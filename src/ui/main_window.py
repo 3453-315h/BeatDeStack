@@ -22,6 +22,7 @@ from src.core.gpu_utils import get_gpu_info
 from src.core.model_manager import ModelManager
 from src.ui.player import StemPlayerWidget
 from src.utils.resource_utils import get_resource_path
+from src.core import constants
 
 
 # Cross-platform helper functions
@@ -81,7 +82,7 @@ class StreamRedirector:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("BeatDeStack eXtended v3.7.0")
+        self.setWindowTitle("BeatDeStack eXtended v3.8.0")
         self.resize(1280, 850)
         
         self.model_manager = ModelManager()
@@ -126,6 +127,55 @@ class MainWindow(QMainWindow):
         self.player_widget.btn_play.clicked.connect(
             lambda: self.update_visualizer_state()
         )
+        
+        # Setup keyboard shortcuts
+        self._setup_shortcuts()
+    
+    def _setup_shortcuts(self):
+        """Setup global keyboard shortcuts."""
+        from PyQt6.QtGui import QShortcut, QKeySequence
+        
+        # Space = Play/Pause
+        QShortcut(QKeySequence(Qt.Key.Key_Space), self, self._shortcut_play_pause)
+        
+        # Escape = Stop
+        QShortcut(QKeySequence(Qt.Key.Key_Escape), self, self._shortcut_stop)
+        
+        # Ctrl+O = Open file
+        QShortcut(QKeySequence.StandardKey.Open, self, self._add_files)
+        
+        # 1-6 = Toggle mute for stems
+        for i in range(1, 7):
+            key = getattr(Qt.Key, f"Key_{i}")
+            QShortcut(QKeySequence(key), self, lambda idx=i: self._shortcut_toggle_mute(idx))
+            
+        # Shift+1-6 = Solo stems
+        for i in range(1, 7):
+            key = getattr(Qt.Key, f"Key_{i}")
+            QShortcut(QKeySequence(Qt.KeyboardModifier.ShiftModifier | key), self, 
+                     lambda idx=i: self._shortcut_toggle_solo(idx))
+    
+    def _shortcut_play_pause(self):
+        """Toggle play/pause via keyboard."""
+        self.player_widget.toggle_playback()
+    
+    def _shortcut_stop(self):
+        """Stop playback via keyboard."""
+        self.player_widget.stop_playback()
+    
+    def _shortcut_toggle_mute(self, index):
+        """Toggle mute for stem at index (1-based)."""
+        tracks = list(self.player_widget.tracks.values())
+        if 0 < index <= len(tracks):
+            track = tracks[index - 1]
+            track.btn_mute.click()  # Toggle via button
+    
+    def _shortcut_toggle_solo(self, index):
+        """Toggle solo for stem at index (1-based)."""
+        tracks = list(self.player_widget.tracks.values())
+        if 0 < index <= len(tracks):
+            track = tracks[index - 1]
+            track.btn_solo.click()  # Toggle via button
 
     def setup_ui(self):
         # --- Dashboard Layout ---
@@ -219,7 +269,6 @@ class MainWindow(QMainWindow):
         header_layout = QHBoxLayout()
         
         title = QLabel()
-        title = QLabel()
         logo_path = get_resource_path(os.path.join("resources", "logo.png")).replace("\\", "/")
         
         title.setText(
@@ -304,11 +353,10 @@ class MainWindow(QMainWindow):
         right_layout.setContentsMargins(0, 0, 0, 0)
         
         # Scroll Area - vertical only
-        from PyQt6.QtCore import Qt as QtCore
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(QtCore.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet("background: transparent;")
         
         scroll_content = QWidget()
@@ -318,6 +366,27 @@ class MainWindow(QMainWindow):
         content_layout.setSpacing(15)
         
         # --- Control Panels ---
+        
+        # Preset Selector
+        from PyQt6.QtWidgets import QGroupBox, QComboBox
+        preset_group = QGroupBox("PRESETS")
+        preset_layout = QVBoxLayout(preset_group)
+        preset_layout.setSpacing(5)
+        
+        preset_row = QHBoxLayout()
+        self.preset_combo = QComboBox()
+        self._refresh_presets()
+        self.preset_combo.currentTextChanged.connect(self._on_preset_selected)
+        preset_row.addWidget(self.preset_combo, 1)
+        
+        self.btn_save_preset = QPushButton("💾")
+        self.btn_save_preset.setFixedSize(28, 28)
+        self.btn_save_preset.setToolTip("Save current settings as preset")
+        self.btn_save_preset.clicked.connect(self._save_preset)
+        preset_row.addWidget(self.btn_save_preset)
+        
+        preset_layout.addLayout(preset_row)
+        content_layout.addWidget(preset_group)
         
         # Stem Options
         self.stem_panel = StemOptionsPanel()
@@ -425,21 +494,21 @@ class MainWindow(QMainWindow):
         
         # Priority Logic: Roformer > User Import > Default Fallback
         
-        target_model = "htdemucs" # Ultimate fallback
+        target_model = constants.MODEL_HTDEMUCS # Ultimate fallback
         
-        if mode == "vocals_only" or (stem_count == 2 and mode == "standard"):
+        if mode == constants.MODE_VOCALS or (stem_count == 2 and mode == constants.MODE_STANDARD):
             # Prefer MelBand Roformer for Vocals
-            if "vocals_mel_band_roformer.ckpt" in all_models:
-                target_model = "vocals_mel_band_roformer.ckpt"
-            elif "Kim_Vocal_2.onnx" in all_models:
-                target_model = "Kim_Vocal_2.onnx"
+            if constants.MODEL_ROFORMER_VOCALS in all_models:
+                target_model = constants.MODEL_ROFORMER_VOCALS
+            elif constants.MODEL_KIM_VOCAL_2 in all_models:
+                target_model = constants.MODEL_KIM_VOCAL_2
                 
-        elif mode == "instrumental":
+        elif mode == constants.MODE_INSTRUMENTAL:
             # Prefer BS-Roformer for Instrumental
-            if "model_bs_roformer_ep_317_sdr_12.9755.ckpt" in all_models:
-                target_model = "model_bs_roformer_ep_317_sdr_12.9755.ckpt"
-            elif "UVR-MDX-NET-Inst_HQ_3.onnx" in all_models:
-                target_model = "UVR-MDX-NET-Inst_HQ_3.onnx"
+            if constants.MODEL_BS_ROFORMER_INST in all_models:
+                target_model = constants.MODEL_BS_ROFORMER_INST
+            elif constants.MODEL_MDX_INST_HQ_3 in all_models:
+                target_model = constants.MODEL_MDX_INST_HQ_3
                 
         else:
              # Standard 4-Stem, Drums, Bass, etc.
@@ -447,17 +516,17 @@ class MainWindow(QMainWindow):
              # Roformer (ep_317) is typically 2-stem (Vocals/Inst), so do NOT use it here.
              
              if stem_count == 4:
-                 target_model = "htdemucs"
-             elif mode in ["drums_only", "bass_only"]:
-                 target_model = "htdemucs"
+                 target_model = constants.MODEL_HTDEMUCS
+             elif mode in [constants.MODE_DRUMS, constants.MODE_BASS]:
+                 target_model = constants.MODEL_HTDEMUCS
              elif stem_count == 6:
                  # Check for 6-stem model
-                 if "htdemucs_6s" in all_models:
-                     target_model = "htdemucs_6s"
+                 if constants.MODEL_HTDEMUCS_6S in all_models:
+                     target_model = constants.MODEL_HTDEMUCS_6S
                  else:
-                     target_model = "htdemucs" # Fallback
+                     target_model = constants.MODEL_HTDEMUCS # Fallback
              else:
-                 target_model = "htdemucs"
+                 target_model = constants.MODEL_HTDEMUCS
                  
         # Set the model in Advanced Panel
         # We need to access the combo box directly or add a setter
@@ -520,7 +589,7 @@ class MainWindow(QMainWindow):
     def _import_custom_model(self):
         """Import custom model files."""
         files, _ = QFileDialog.getOpenFileNames(
-            self, "Select Model Files", "", "Model Files (*.pth *.onnx *.yaml)"
+            self, "Select Model Files", "", "Model Files (*.pth *.onnx *.yaml *.ckpt)"
         )
         if files:
             for f in files:
@@ -602,10 +671,11 @@ class MainWindow(QMainWindow):
         msg.setWindowTitle("Export Complete")
         msg.setText(f"MIDI file created:\n{output_path}")
         msg.setIcon(QMessageBox.Icon.Information)
-        msg.addButton("Open Folder", QMessageBox.ButtonRole.AcceptRole)
+        open_btn = msg.addButton("Open Folder", QMessageBox.ButtonRole.AcceptRole)
         msg.addButton("Close", QMessageBox.ButtonRole.RejectRole)
         
-        if msg.exec() == QMessageBox.ButtonRole.AcceptRole:
+        msg.exec()
+        if msg.clickedButton() == open_btn:
              open_folder_cross_platform(os.path.dirname(output_path))
              
     def _on_midi_export_error(self, error):
@@ -1003,4 +1073,86 @@ class MainWindow(QMainWindow):
             
         if stems:
             self.player_widget.load_stems(stems)
-
+    
+    # --- Preset Methods ---
+    
+    def _refresh_presets(self):
+        """Populate preset dropdown."""
+        from src.core.presets import get_preset_names
+        self.preset_combo.blockSignals(True)
+        self.preset_combo.clear()
+        self.preset_combo.addItem("-- Select Preset --")
+        self.preset_combo.addItems(get_preset_names())
+        self.preset_combo.blockSignals(False)
+    
+    def _on_preset_selected(self, name):
+        """Apply selected preset to panels."""
+        if name == "-- Select Preset --" or not name:
+            return
+        
+        from src.core.presets import load_preset
+        preset = load_preset(name)
+        if not preset:
+            return
+        
+        # Apply to stem panel
+        if "stem_count" in preset:
+            idx = {2: 0, 4: 1, 6: 2}.get(preset["stem_count"], 0)
+            self.stem_panel.combo_stems.setCurrentIndex(idx)
+        if "mode" in preset:
+            idx = self.stem_panel.combo_mode.findText(preset["mode"])
+            if idx >= 0:
+                self.stem_panel.combo_mode.setCurrentIndex(idx)
+        
+        # Apply to quality panel
+        if "quality" in preset:
+            self.quality_panel.quality_slider.setValue(preset["quality"])
+        
+        # Apply to enhancement panel
+        if "dereverb" in preset:
+            self.enhance_panel.chk_dereverb.setChecked(preset["dereverb"])
+        if "denoise" in preset:
+            self.enhance_panel.chk_denoise.setChecked(preset["denoise"])
+        
+        # Apply to output panel
+        if "format" in preset:
+            idx = self.output_panel.combo_format.findText(preset["format"])
+            if idx >= 0:
+                self.output_panel.combo_format.setCurrentIndex(idx)
+        if "sample_rate" in preset:
+            idx = self.output_panel.combo_rate.findText(str(preset["sample_rate"]))
+            if idx >= 0:
+                self.output_panel.combo_rate.setCurrentIndex(idx)
+        
+        self.append_log(f"Applied preset: {name}\n")
+    
+    def _save_preset(self):
+        """Save current settings as a new preset."""
+        from PyQt6.QtWidgets import QInputDialog
+        from src.core.presets import save_preset
+        
+        name, ok = QInputDialog.getText(self, "Save Preset", "Enter preset name:")
+        if not ok or not name.strip():
+            return
+        
+        name = name.strip()
+        
+        # Gather current settings
+        stem_vals = self.stem_panel.get_values()
+        enhance_vals = self.enhance_panel.get_values()
+        output_vals = self.output_panel.get_values()
+        quality_vals = self.quality_panel.get_values()
+        
+        settings = {
+            "stem_count": stem_vals.get("stem_count"),
+            "mode": stem_vals.get("mode"),
+            "quality": quality_vals.get("quality"),
+            "dereverb": enhance_vals.get("dereverb"),
+            "denoise": enhance_vals.get("denoise"),
+            "format": output_vals.get("format"),
+            "sample_rate": output_vals.get("sample_rate"),
+        }
+        
+        if save_preset(name, settings):
+            self._refresh_presets()
+            self.append_log(f"Saved preset: {name}\n")

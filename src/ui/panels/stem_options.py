@@ -1,5 +1,6 @@
 from PyQt6.QtWidgets import QGroupBox, QVBoxLayout, QRadioButton, QCheckBox
 from PyQt6.QtCore import pyqtSignal
+from src.core import constants
 
 
 class StemOptionsPanel(QGroupBox):
@@ -57,23 +58,23 @@ class StemOptionsPanel(QGroupBox):
     def get_stem_config(self):
         """Returns (stem_count, mode) based on current selection."""
         if self.radio_6stem.isChecked():
-            return 6, "standard"
+            return 6, constants.MODE_STANDARD
         elif self.radio_2stem.isChecked():
-            return 2, "standard"
+            return 2, constants.MODE_STANDARD
         elif self.radio_vocals.isChecked():
-            return 2, "vocals_only"
+            return 2, constants.MODE_VOCALS
         elif self.radio_inst.isChecked():
-            return 2, "instrumental"
+            return 2, constants.MODE_INSTRUMENTAL
         elif self.radio_drums.isChecked():
-            return 4, "drums_only"
+            return 4, constants.MODE_DRUMS
         elif self.radio_bass.isChecked():
-            return 4, "bass_only"
+            return 4, constants.MODE_BASS
         elif self.radio_guitar.isChecked():
-            return 6, "guitar_only"
+            return 6, constants.MODE_GUITAR
         elif self.radio_piano.isChecked():
-            return 6, "piano_only"
+            return 6, constants.MODE_PIANO
         else:  # 4-stem
-            return 4, "standard"
+            return 4, constants.MODE_STANDARD
     
     def is_invert_enabled(self):
         """Returns whether invert mode is enabled."""
