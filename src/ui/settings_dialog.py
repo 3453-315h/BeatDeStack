@@ -27,7 +27,7 @@ class SettingsDialog(QDialog):
         self.setMinimumSize(500, 400)
         self.setStyleSheet(f"background-color: {COLORS['background']}; color: {COLORS['text']};")
         
-        self.settings = QSettings("BeatDeStack", "eXtended")
+        self.settings = QSettings("BeatDeStack", "BeatDeStackExtended")
         self._setup_ui()
         self._load_settings()
     
@@ -62,7 +62,6 @@ class SettingsDialog(QDialog):
         # Performance Tab
         self.tabs.addTab(self._create_performance_tab(), "Performance")
         
-        # Models Tab
         # Models Tab
         self.tabs.addTab(self._create_models_tab(), "Models")
         
@@ -180,7 +179,6 @@ class SettingsDialog(QDialog):
         self.spin_memory.setValue(0)
         self.spin_memory.setSuffix(" GB")
         self.spin_memory.setSpecialValueText("Auto")
-        self.spin_memory.setSpecialValueText("Auto")
         self.spin_memory.setToolTip("Maximum RAM usage limit (0 = Unlimited). Lower this if you experience crashes.")
         proc_layout.addRow("Memory Limit:", self.spin_memory)
         
@@ -279,7 +277,7 @@ class SettingsDialog(QDialog):
                 <h2 style='color: {COLORS['text']}; margin: 0;'>
                     Beat<span style='color: #FF4444;'>De</span>Stack e<span style='color: #FF4444;'>X</span>tended
                 </h2>
-                <p style='color: {COLORS['text_dim']}; margin: 5px 0 0 0;'>v3.8.0 ({edition})</p>
+                <p style='color: {COLORS['text_dim']}; margin: 5px 0 0 0;'>v3.9.0 ({edition})</p>
             </div>"""
         )
         self.title_label.setTextFormat(Qt.TextFormat.RichText)
@@ -327,7 +325,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(credits_group)
         
         # Legal / Footer
-        footer_label = QLabel("© 2025 BeatDeStack Project. Open Source Software.")
+        footer_label = QLabel("© 2026 BeatDeStack Project. Open Source Software.")
         footer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         footer_label.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 10px; margin-top: 10px;")
         layout.addWidget(footer_label)

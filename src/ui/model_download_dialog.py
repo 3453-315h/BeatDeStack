@@ -19,7 +19,7 @@ AVAILABLE_MODELS = {
         ("UVR-MDX-NET Main", "General purpose (67 MB)", "UVR_MDXNET_Main.onnx"),
     ],
     "MDX-Net Instrumental": [
-        ("UVR-MDX-NET Inst HQ 3", "High quality instrumental (67 MB)", "UVR-MDX-NET-Inst_HQ_3.onnx"),
+        ("UVR-MDX-NET Inst HQ 5", "High quality instrumental (59 MB)", "UVR-MDX-NET-Inst_HQ_5.onnx"),
         ("UVR-MDX-NET Inst HQ 1", "Instrumental HQ variant (60 MB)", "UVR-MDX-NET-Inst_HQ_1.onnx"),
         ("Kim Inst", "Kim instrumental model (67 MB)", "Kim_Inst.onnx"),
         ("Reverb HQ By FoxJoy", "MDX reverb removal (67 MB)", "Reverb_HQ_By_FoxJoy.onnx"),
@@ -36,7 +36,7 @@ AVAILABLE_MODELS = {
         ("UVR-De-Echo-Normal", "Normal echo removal (127 MB)", "UVR-De-Echo-Normal.pth"),
     ],
     "Roformer Vocals (Best 2024)": [
-        ("BS-Roformer-Viperx-1297", "Best vocals SDR 12.97 (639 MB)", "model_bs_roformer_ep_317_sdr_12.9755.ckpt"),
+        ("BS-Roformer-2025-07", "Best vocals SDR 2026 upgrade", "BS_Roformer_2025_07.ckpt"),
         ("MelBand Roformer Vocals", "Kimberley Jensen vocals (~900 MB)", "vocals_mel_band_roformer.ckpt"),
         ("Mel-Roformer-Viperx", "Mel-band high quality (~900 MB)", "model_mel_band_roformer_ep_3005_sdr_11.4360.ckpt"),
     ],

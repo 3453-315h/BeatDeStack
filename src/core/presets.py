@@ -13,7 +13,7 @@ def _get_presets_dir() -> str:
     try:
         # Frozen EXE
         base = os.path.dirname(sys.executable)
-    except:
+    except Exception:
         base = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
     
     presets_dir = os.path.join(base, "presets")
@@ -28,7 +28,7 @@ DEFAULT_PRESETS: Dict[str, Dict[str, Any]] = {
         "stem_count": 2,
         "mode": "Instrumental",
         "quality": 2,  # Best
-        "dereverb": True,
+        "dereverb": 50,
         "denoise": False,
         "format": "MP3",
         "sample_rate": 44100,
@@ -38,7 +38,7 @@ DEFAULT_PRESETS: Dict[str, Dict[str, Any]] = {
         "stem_count": 2,
         "mode": "Vocals Only",
         "quality": 2,  # Best
-        "dereverb": True,
+        "dereverb": 50,
         "denoise": True,
         "format": "WAV",
         "sample_rate": 44100,
@@ -119,6 +119,12 @@ def save_preset(name: str, settings: Dict[str, Any]) -> bool:
     Save a user preset.
     Returns True on success.
     """
+    # Validate preset name
+    import re
+    if not name or not re.match(r'^[\w\s\-()]+$', name):
+        logger.error(f"Invalid preset name: {name}. Use only letters, numbers, spaces, hyphens, and parentheses.")
+        return False
+    
     preset_file = os.path.join(_get_presets_dir(), f"{name}.json")
     try:
         with open(preset_file, 'w') as f:

@@ -22,11 +22,11 @@ MODEL_HTDEMUCS_6S = "htdemucs_6s"
 MODEL_ROFORMER_VOCALS = "vocals_mel_band_roformer.ckpt"
 
 # BS-Roformer (Instrumental/Stems)
-MODEL_BS_ROFORMER_INST = "model_bs_roformer_ep_317_sdr_12.9755.ckpt"
+MODEL_BS_ROFORMER_INST = "BS_Roformer_2025_07.ckpt"
 
 # MDX / UVR Models
 MODEL_KIM_VOCAL_2 = "Kim_Vocal_2.onnx"
-MODEL_MDX_INST_HQ_3 = "UVR-MDX-NET-Inst_HQ_3.onnx"
+MODEL_MDX_INST_HQ_5 = "UVR-MDX-NET-Inst_HQ_5.onnx"
 MODEL_MDX_VOCAL_FT = "UVR-MDX-NET-Voc_FT.onnx"
 MODEL_DEECHO_DEREVERB = "UVR-DeEcho-DeReverb.pth"
 
@@ -34,7 +34,7 @@ MODEL_DEECHO_DEREVERB = "UVR-DeEcho-DeReverb.pth"
 CHECKPOINT_EXTENSIONS = [".yaml", ".pth", ".ckpt", ".onnx"]
 
 # --- Cleanup Patterns ---
-CLEANUP_PATTERNS = ["_temp_", "(No Reverb)", "(Reverb)", "vocals_ensemble", "vocals_enhanced", "Kim_Vocal", "deverb"]
+CLEANUP_PATTERNS = ["_temp_", "(No Reverb)", "(Reverb)", "vocals_ensemble", "Kim_Vocal", "deverb"]
 
 # --- Preset Names ---
 PRESET_DEFAULT = "Default (Balanced)"

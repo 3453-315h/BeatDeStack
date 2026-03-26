@@ -3,7 +3,7 @@ import sys
 import os
 
 def setup_logger():
-    logger = logging.getLogger("SunoSplitter")
+    logger = logging.getLogger("BeatDeStack")
     logger.setLevel(logging.DEBUG)
     
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')

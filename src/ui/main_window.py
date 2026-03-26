@@ -9,7 +9,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QObject, pyqtSignal
 from PyQt6.QtGui import QIcon, QPixmap
-from PyQt6.QtMultimedia import QMediaPlayer
 from PyQt6.QtCore import QSize
 from .style import COLORS, apply_theme
 from .widgets import DragDropWidget, QueueItemWidget, VisualizerWidget
@@ -82,7 +81,7 @@ class StreamRedirector:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("BeatDeStack eXtended v3.8.0")
+        self.setWindowTitle("BeatDeStack eXtended v3.9.0")
         self.resize(1280, 850)
         
         self.model_manager = ModelManager()
@@ -142,7 +141,17 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence(Qt.Key.Key_Escape), self, self._shortcut_stop)
         
         # Ctrl+O = Open file
-        QShortcut(QKeySequence.StandardKey.Open, self, self._add_files)
+        QShortcut(QKeySequence.StandardKey.Open, self, self.open_file_dialog)
+        
+        # Ctrl+,: Settings
+        QShortcut(QKeySequence("Ctrl+,"), self, self._open_settings)
+        
+        # Ctrl+Enter: Start processing
+        QShortcut(QKeySequence("Ctrl+Return"), self, self.start_processing)
+        
+        # Ctrl+1/2: View switching
+        QShortcut(QKeySequence("Ctrl+1"), self, lambda: self._switch_view(0))
+        QShortcut(QKeySequence("Ctrl+2"), self, lambda: self._switch_view(1))
         
         # 1-6 = Toggle mute for stems
         for i in range(1, 7):
@@ -254,9 +263,7 @@ class MainWindow(QMainWindow):
         sidebar_layout.addWidget(self.btn_settings)
         
         self.main_layout.addWidget(sidebar)
-        
-        # Setup keyboard shortcuts
-        self._setup_shortcuts()
+
 
     def _setup_center_panel(self):
         """Create center work area with queue and visualizer."""
@@ -507,8 +514,8 @@ class MainWindow(QMainWindow):
             # Prefer BS-Roformer for Instrumental
             if constants.MODEL_BS_ROFORMER_INST in all_models:
                 target_model = constants.MODEL_BS_ROFORMER_INST
-            elif constants.MODEL_MDX_INST_HQ_3 in all_models:
-                target_model = constants.MODEL_MDX_INST_HQ_3
+            elif constants.MODEL_MDX_INST_HQ_5 in all_models:
+                target_model = constants.MODEL_MDX_INST_HQ_5
                 
         else:
              # Standard 4-Stem, Drums, Bass, etc.
@@ -545,21 +552,39 @@ class MainWindow(QMainWindow):
             self.stem_panel.setChecked(False)
 
     def _on_queue_item_clicked(self, item):
-        """Handle click on queue item to show input waveform."""
+        """Handle click on queue item — pending shows waveform, done loads stems."""
         widget = self.queue_list.itemWidget(item)
         status = widget.status_label.text()
         file_path = item.data(Qt.ItemDataRole.UserRole)
         
-        # If Pending, show input waveform for selection
+        # If Pending, show input waveform for preview selection
         if "Pending" in status:
-            self.player_widget.load_input_waveform(file_path) # Load into bottom player
-            # self.visualizer.load_file(file_path) 
-        # If Done, we could show results, but for now user focused on input selection
-        # else:
-            # Maybe show result stems? existing logic handles dragging/opening
-            # For now, do nothing or switch to input waveform anyway if they want to re-preview
-            # self.player_widget.load_input_waveform(file_path)
-            pass
+            self.player_widget.load_input_waveform(file_path)
+        elif "Done" in status:
+            # Load completed stems into the player
+            base_name = os.path.splitext(os.path.basename(file_path))[0]
+            output_dir = os.path.join(os.path.dirname(file_path), f"{base_name} - Stems")
+            
+            if not os.path.exists(output_dir):
+                return
+            
+            stems = {}
+            if os.path.exists(file_path):
+                stems["Original"] = file_path
+            
+            supported_exts = ('.wav', '.mp3', '.flac', '.ogg', '.m4a')
+            try:
+                for f in os.listdir(output_dir):
+                    if f.lower().endswith(supported_exts):
+                        name = os.path.splitext(f)[0]
+                        clean_name = name.replace(f"{base_name}_", "").replace(f"{base_name} ", "")
+                        stems[clean_name] = os.path.join(output_dir, f)
+            except Exception as e:
+                self.append_log(f"Error scanning stems directory: {e}\n")
+                return
+            
+            if stems:
+                self.player_widget.load_stems(stems)
 
     def _update_gpu_status(self):
         """Update GPU status display."""
@@ -843,6 +868,9 @@ class MainWindow(QMainWindow):
         self.append_log(f"Generating preview slice ({duration:.1f}s from {start_time if start_time else 'auto'})...\n")
         if not create_preview_slice(file_path, temp_slice_path, duration=duration, start_time=start_time):
              self.append_log("Failed to create preview slice.\n")
+             # Cleanup temp file on failure
+             if os.path.exists(temp_slice_path):
+                 os.remove(temp_slice_path)
              return
 
         # 2. Setup Options
@@ -937,23 +965,6 @@ class MainWindow(QMainWindow):
 
     # --- Sidebar Navigation Methods ---
     
-    def _setup_shortcuts(self):
-        """Setup keyboard shortcuts."""
-        from PyQt6.QtGui import QShortcut, QKeySequence
-        
-        # Ctrl+O: Open file
-        QShortcut(QKeySequence("Ctrl+O"), self, self.open_file_dialog)
-        
-        # Ctrl+,: Settings
-        QShortcut(QKeySequence("Ctrl+,"), self, self._open_settings)
-        
-        # Ctrl+Enter: Start processing
-        QShortcut(QKeySequence("Ctrl+Return"), self, self.start_processing)
-        
-        # Ctrl+1/2: View switching
-        QShortcut(QKeySequence("Ctrl+1"), self, lambda: self._switch_view(0))
-        QShortcut(QKeySequence("Ctrl+2"), self, lambda: self._switch_view(1))
-    
     def _highlight_sidebar_button(self, index):
         """Highlight active sidebar button."""
         for i, btn in enumerate(self.sidebar_buttons):
@@ -1033,47 +1044,6 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(self)
         dialog.exec()
 
-    def _on_queue_item_clicked(self, item):
-        """Handle click on queue item to auto-load stems into player."""
-        widget = self.queue_list.itemWidget(item)
-        status = widget.status_label.text()
-        
-        # Only load if processing is complete
-        if "Done" not in status:
-            return
-            
-        file_path = item.data(Qt.ItemDataRole.UserRole)
-        base_name = os.path.splitext(os.path.basename(file_path))[0]
-        output_dir = os.path.join(os.path.dirname(file_path), f"{base_name} - Stems")
-        
-        if not os.path.exists(output_dir):
-            return
-            
-        # Collect stems
-        stems = {}
-        
-        # Add Original if exists
-        if os.path.exists(file_path):
-            stems["Original"] = file_path
-            
-        # Scan folder for supported audio files
-        supported_exts = ('.wav', '.mp3', '.flac', '.ogg', '.m4a')
-        
-        try:
-            for f in os.listdir(output_dir):
-                if f.lower().endswith(supported_exts):
-                    # Use filename as track name (e.g. "vocals", "drums")
-                    name = os.path.splitext(f)[0]
-                    # Clean up name if it has prefixes like separate_
-                    clean_name = name.replace(f"{base_name}_", "").replace(f"{base_name} ", "")
-                    stems[clean_name] = os.path.join(output_dir, f)
-        except Exception as e:
-            self.append_log(f"Error scanning stems directory: {e}\n")
-            return
-            
-        if stems:
-            self.player_widget.load_stems(stems)
-    
     # --- Preset Methods ---
     
     def _refresh_presets(self):

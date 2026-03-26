@@ -1,6 +1,8 @@
 import torch
+import functools
 from src.utils.logger import logger
 
+@functools.lru_cache(maxsize=1)
 def get_gpu_info():
     """
     Detects available GPU acceleration with priority: CUDA > DirectML > MPS > CPU

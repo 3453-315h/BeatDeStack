@@ -1,6 +1,7 @@
 import os
 import sys
 import shutil
+import platform
 
 def get_resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -21,20 +22,22 @@ def get_ffmpeg_path():
     Get path to FFmpeg executable.
     
     Priority:
-    1. Bundled in PyInstaller EXE (sys._MEIPASS/bin/ffmpeg.exe)
-    2. Bundled in dev mode (project_root/bin/ffmpeg.exe)
+    1. Bundled in PyInstaller EXE (sys._MEIPASS/bin/ffmpeg[.exe])
+    2. Bundled in dev mode (project_root/bin/ffmpeg[.exe])
     3. System PATH (shutil.which)
     4. Fallback to "ffmpeg" (hope it's in PATH)
     """
+    ffmpeg_name = "ffmpeg.exe" if platform.system() == "Windows" else "ffmpeg"
+    
     # Check for bundled ffmpeg
     try:
         # Frozen EXE mode: look in sys._MEIPASS/bin/
-        bundled = os.path.join(sys._MEIPASS, "bin", "ffmpeg.exe")
+        bundled = os.path.join(sys._MEIPASS, "bin", ffmpeg_name)
         if os.path.exists(bundled):
             return bundled
     except AttributeError:
         # Dev mode: look relative to working directory
-        bundled = os.path.join(os.path.abspath("."), "bin", "ffmpeg.exe")
+        bundled = os.path.join(os.path.abspath("."), "bin", ffmpeg_name)
         if os.path.exists(bundled):
             return bundled
     
@@ -45,3 +48,4 @@ def get_ffmpeg_path():
     
     # Last resort - hope it's accessible
     return "ffmpeg"
+

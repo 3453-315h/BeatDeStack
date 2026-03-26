@@ -35,7 +35,7 @@ class ModelManager:
         
         self.default_models = [
             "htdemucs", "htdemucs_6s",
-            "model_bs_roformer_ep_317_sdr_12.9755.ckpt", 
+            "BS_Roformer_2025_07.ckpt", 
             "vocals_mel_band_roformer.ckpt",
             "MDX23C-8KFFT-InstVoc_HQ.ckpt",
             "UVR_MDXNET_KARA.onnx"

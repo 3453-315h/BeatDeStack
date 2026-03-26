@@ -163,7 +163,8 @@ class WaveformSelectorWidget(QWidget):
         
         # Start thread
         if self.loader and self.loader.isRunning():
-            self.loader.wait()
+            self.loader.requestInterruption()
+            self.loader.wait(500)  # Wait up to 500ms, non-blocking thereafter
             
         self.loader = WaveformLoader(file_path, width_pixels=self.width())
         self.loader.loaded.connect(self._on_loaded)

@@ -224,7 +224,6 @@ class StemPlayerWidget(QWidget):
         
         # Show waveform
         self.waveform.setVisible(True)
-        # self.seek_slider.setVisible(False) 
         
         if file_path:
              self.waveform.load_file(file_path)
@@ -249,13 +248,7 @@ class StemPlayerWidget(QWidget):
         """
         self.stop_playback()
         self.waveform.setVisible(False) # Hide input waveform
-        # self.seek_slider.setVisible(True) # Slider removed
         self._clear_tracks()
-        
-        if not stem_dict:
-            return
-
-        # Create a player for each stem
         
         if not stem_dict:
             return
@@ -316,8 +309,6 @@ class StemPlayerWidget(QWidget):
         self.players.clear()
         self.audio_outputs.clear()
         self.duration = 0
-        # self.seek_slider.setRange(0, 0)
-        # self.time_lbl.setText("00:00 / 00:00")
 
     def toggle_playback(self):
         if not self.players: return
@@ -359,14 +350,10 @@ class StemPlayerWidget(QWidget):
     # --- Transport & Sync ---
     
     def _on_position_changed(self, pos):
-        if not self._seeking:
-            pass
-            # self.seek_slider.setValue(pos)
-            # self._update_time_lbl(pos)
+        pass
             
     def _on_duration_changed(self, dur):
         self.duration = dur
-        # self.seek_slider.setRange(0, dur)
         
     def _on_state_changed(self, state):
         if state == QMediaPlayer.PlaybackState.PlayingState:
@@ -378,25 +365,15 @@ class StemPlayerWidget(QWidget):
 
     def _update_time_lbl(self, ms):
         pass
-        # cur_sec = (ms // 1000) % 60
-        # cur_min = (ms // 60000)
-        # tot_sec = (self.duration // 1000) % 60
-        # tot_min = (self.duration // 60000)
-        # self.time_lbl.setText(f"{cur_min:02}:{cur_sec:02} / {tot_min:02}:{tot_sec:02}")
 
     def _on_seek_start(self):
         self._seeking = True
         
     def _on_seek_move(self, pos):
         pass
-        # self._update_time_lbl(pos)
         
     def _on_seek_end(self):
         pass
-        # pos = self.seek_slider.value()
-        # for p in self.players:
-        #     p.setPosition(pos)
-        # self._seeking = False
 
     def _sync_check(self):
         """Periodically re-align players if they drift."""

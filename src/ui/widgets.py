@@ -2,8 +2,8 @@ from PyQt6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, 
     QProgressBar, QPushButton, QFrame, QStyle
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QUrl
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QDrag, QAction
+from PyQt6.QtCore import Qt, pyqtSignal, QUrl
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QAction
 from .style import COLORS
 import os
 
@@ -220,13 +220,16 @@ class VisualizerWidget(QWidget):
         self.values = [0.1] * self.bars
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_values)
-        self.timer.start(50)  # 20 FPS
         self.active = False
         self.setStyleSheet(f"background-color: rgba(0, 0, 0, 0.3); border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);")
 
     def set_active(self, active):
         self.active = active
-        if not active:
+        if active:
+            if not self.timer.isActive():
+                self.timer.start(50)  # 20 FPS
+        else:
+            self.timer.stop()
             self.values = [0.1] * self.bars
             self.update()
 

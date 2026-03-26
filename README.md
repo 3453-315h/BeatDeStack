@@ -1,4 +1,4 @@
-# BeatDeStack Extended v3.8.0
+# BeatDeStack Extended v3.9.0
 
 **The Ultimate Offline AI Stem Separation & Audio Enhancement Tool.**
 
@@ -40,7 +40,7 @@ Turn your audio into editable MIDI notes!
 
 ---
 
-### 🎛️ Processing Presets (NEW in v3.8.0)
+### 🎛️ Processing Presets (NEW in v3.9.0)
 
 Quickly apply optimized settings with built-in presets:
 
@@ -51,7 +51,7 @@ Quickly apply optimized settings with built-in presets:
 * **Quick Preview**: Fast 2-stem for quick checks
 * **Save Custom Presets**: Create your own configurations
 
-### 🎵 BPM & Key Detection (NEW in v3.8.0)
+### 🎵 BPM & Key Detection (NEW in v3.9.0)
 
 Automatically analyze your audio:
 
@@ -60,7 +60,7 @@ Automatically analyze your audio:
 * **Display in Queue**: See BPM/Key info for each file
 * **Filename Option**: Include BPM/Key in output filenames (e.g., `song_128bpm_Amin_vocals.mp3`)
 
-### ⌨️ Keyboard Shortcuts (NEW in v3.8.0)
+### ⌨️ Keyboard Shortcuts (NEW in v3.9.0)
 
 | Key | Action |
 |-----|--------|
@@ -144,7 +144,7 @@ This package comes pre-loaded with a curated selection of "Best-in-Class" models
 | Model | Type | Best For |
 | :--- | :--- | :--- |
 | **Kim_Vocal_2.onnx** | MDX-Net | **Vocals**. Premium quality vocal extraction with minimal bleed. |
-| **UVR-MDX-NET-Inst_HQ_3.onnx** | MDX-Net | **Instrumentals**. Excellent for creating clean backing tracks. |
+| **UVR-MDX-NET-Inst_HQ_5.onnx** | MDX-Net | **Instrumentals**. Excellent for creating clean backing tracks. (2026 upgrade over HQ_3) |
 | **UVR_MDXNET_Main.onnx** | MDX-Net | **Balanced**. Good all-rounder for general separation tasks. |
 | **Reverb_HQ_By_FoxJoy.onnx** | MDX-Net | **De-Reverb**. Removes room sound for dry, studio-like audio. |
 | **UVR-DeNoise.pth** | VR Arch | **De-Noise**. Heavy-duty background noise removal. |
@@ -157,7 +157,7 @@ This package comes pre-loaded with a curated selection of "Best-in-Class" models
 
 BeatDeStack Extended supports the entire ecosystem of community-trained models. While not pre-installed to keep the download size reasonable, you can download and **Import** any of the following types:
 
-* **BS-Roformer / MelBand Roformer**: The current state-of-the-art for instrumental separation (e.g., `model_bs_roformer_ep_317_sdr_12.9755.ckpt`).
+* **BS-Roformer / MelBand Roformer**: The current state-of-the-art for instrumental separation (e.g., `BS_Roformer_2025_07.ckpt` replacing the older `ep_317`).
 * **MDX23C**: Newer variations of MDX-Net.
 * **VR Architecture**: Legacy but highly effective models (e.g., `UVR-DeEcho-Aggressive.pth`).
 

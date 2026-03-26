@@ -3,14 +3,15 @@ import soundfile as sf
 import math
 from src.utils.logger import logger
 
-def create_preview_slice(input_path, output_path, duration=30.0):
+def create_preview_slice(input_path, output_path, duration=30.0, start_time=None):
     """
-    Extracts a slice of audio from the middle of the track.
+    Extracts a slice of audio from the track.
     
     Args:
         input_path (str): Path to source audio.
         output_path (str): Path to save the slice.
         duration (float): Duration in seconds.
+        start_time (float, optional): Start position in seconds. If None, slices from the middle.
         
     Returns:
         bool: True if successful, False otherwise.
@@ -22,15 +23,19 @@ def create_preview_slice(input_path, output_path, duration=30.0):
         total_frames = info.frames
         total_duration = total_frames / sr
         
-        # Determine start point (Middle)
+        # Determine start point
         # If song is shorter than duration, use whole song
         if total_duration <= duration:
             start_frame = 0
             frames_to_read = total_frames
+        elif start_time is not None:
+            start_time = max(0, min(start_time, total_duration - duration))
+            start_frame = int(start_time * sr)
+            frames_to_read = int(duration * sr)
         else:
             mid_point = total_duration / 2
-            start_time = max(0, mid_point - (duration / 2))
-            start_frame = int(start_time * sr)
+            auto_start = max(0, mid_point - (duration / 2))
+            start_frame = int(auto_start * sr)
             frames_to_read = int(duration * sr)
             
         # Read and Write

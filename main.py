@@ -16,22 +16,22 @@ if sys.stdout is None:
 if sys.stderr is None:
     sys.stderr = StreamRedirector()
 
-def crash_handler(exctype, value, traceback):
+def crash_handler(exctype, value, tb_obj):
     import traceback as tb
     import datetime
     
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    error_msg = "".join(tb.format_exception(exctype, value, traceback))
+    error_msg = "".join(tb.format_exception(exctype, value, tb_obj))
     
     try:
         with open("CRASH_LOG.txt", "a") as f:
             f.write(f"\n[{timestamp}] CRASH REPORT:\n")
             f.write(error_msg)
             f.write("-" * 50 + "\n")
-    except:
+    except Exception:
         pass
         
-    sys.__excepthook__(exctype, value, traceback)
+    sys.__excepthook__(exctype, value, tb_obj)
     sys.exit(1)
 
 sys.excepthook = crash_handler
@@ -74,7 +74,7 @@ def main():
         return
 
     app = QApplication(sys.argv)
-    app.setApplicationName("StemLab")
+    app.setApplicationName("BeatDeStack")
     
     splash = SplashScreen()
     splash.show()
@@ -85,14 +85,10 @@ def main():
     from src.core.gpu_utils import configure_gpu_memory
     configure_gpu_memory(0.9)  # Use max 90% of GPU memory
     
-    # Simulate loading (or actually load things if we had heavy imports)
-    time.sleep(1) 
     splash.show_message("Loading AI Models...")
     app.processEvents()
-    time.sleep(1)
     splash.show_message("Starting UI...")
     app.processEvents()
-    time.sleep(0.5)
     
     window = MainWindow()
     window.show()

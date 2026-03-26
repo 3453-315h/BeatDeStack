@@ -214,7 +214,7 @@ class ModelsView(QWidget):
                 "best_for": "Instrumental extraction",
                 "quality": "High"
             },
-            "UVR-MDX-NET-Inst_HQ_3.onnx": {
+            "UVR-MDX-NET-Inst_HQ_5.onnx": {
                 "type": "MDX-Net Instrumental HQ",
                 "desc": "Third iteration with improved vocal removal. Produces cleaner instrumental tracks.",
                 "best_for": "Clean instrumentals, backing tracks",
@@ -271,7 +271,7 @@ class ModelsView(QWidget):
                 "quality": "417 MB - drum specialist"
             },
             # Roformer models
-            "model_bs_roformer_ep_317_sdr_12.9755.ckpt": {
+            "BS_Roformer_2025_07.ckpt": {
                 "type": "BS-Roformer (Band-Split)",
                 "desc": "State-of-the-art vocal isolation using Band-Split Roformer architecture. SDR 12.97 - best available quality for vocals.",
                 "best_for": "Premium vocal extraction",

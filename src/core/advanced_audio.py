@@ -1,6 +1,7 @@
 import os
 import shutil
 import logging
+import time
 import torch
 import torchaudio
 import soundfile as sf
@@ -46,6 +47,12 @@ class AdvancedAudioProcessor:
         
         data1, sr1 = sf.read(file1)
         data2, sr2 = sf.read(file2)
+        
+        # Resample if sample rates differ
+        if sr1 != sr2:
+            import librosa
+            logger.info(f"Resampling {os.path.basename(file2)} from {sr2}Hz to {sr1}Hz")
+            data2 = librosa.resample(data2.T, orig_sr=sr2, target_sr=sr1).T
         
         # Ensure same length
         min_len = min(len(data1), len(data2))
@@ -161,7 +168,6 @@ class AdvancedAudioProcessor:
                  
         # AGGRESSIVE CLEANUP
         # Scan for temp files and model outputs to delete.
-        import time
         cleanup_patterns = constants.CLEANUP_PATTERNS
         
         for f in os.listdir(self.output_dir):

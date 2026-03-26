@@ -4,6 +4,7 @@ import sys
 import subprocess
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import torch
 import torchaudio
 import soundfile as sf
@@ -85,8 +86,11 @@ def _apply_time_stretch(audio: torch.Tensor, speed: float) -> torch.Tensor:
     if speed == 1.0 or abs(speed - 1.0) <= 0.01:
         return audio
     try:
-        stft = torch.stft(audio, n_fft=DEFAULT_N_FFT, hop_length=None, win_length=None, return_complex=True)
-        stretcher = torchaudio.transforms.TimeStretch(hop_length=DEFAULT_N_FFT // 4, n_freq=DEFAULT_N_FFT // 2 + 1)
+        n_fft = DEFAULT_N_FFT
+        hop_length = n_fft // 4
+        win_length = n_fft
+        stft = torch.stft(audio, n_fft=n_fft, hop_length=hop_length, win_length=win_length, return_complex=True)
+        stretcher = torchaudio.transforms.TimeStretch(hop_length=hop_length, n_freq=n_fft // 2 + 1)
         stft_stretched = stretcher(stft, speed)
         target_len = int(audio.shape[1] / speed)
         return torch.istft(stft_stretched, n_fft=DEFAULT_N_FFT, length=target_len)
@@ -137,6 +141,7 @@ def _run_audio_separator(input_file, model_name, output_dir, **kwargs):
             separator = _separator_cache[model_name]
             # Update output directory for this run
             separator.output_dir = output_dir
+            _current_cached_model = model_name
         else:
             # Create new separator and cache it
             logger.info(f"Loading model: {model_name} (will be cached)")
@@ -387,10 +392,10 @@ def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep
         
         if mode == constants.MODE_VOCALS and "vocals" not in stem_name: should_keep = False
         elif mode == constants.MODE_INSTRUMENTAL and "no_vocals" not in stem_name and "instrumental" not in stem_name: should_keep = False
-        elif mode == constants.MODE_DRUMS and "drums" not in stem_name: should_keep = False
-        elif mode == constants.MODE_BASS and "bass" not in stem_name: should_keep = False
-        elif mode == constants.MODE_GUITAR and "guitar" not in stem_name: should_keep = False
-        elif mode == constants.MODE_PIANO and "piano" not in stem_name: should_keep = False
+        elif mode == constants.MODE_DRUMS and stem_name not in ("drums", "drums.wav"): should_keep = False
+        elif mode == constants.MODE_BASS and stem_name not in ("bass", "bass.wav"): should_keep = False
+        elif mode == constants.MODE_GUITAR and stem_name not in ("guitar", "guitar.wav"): should_keep = False
+        elif mode == constants.MODE_PIANO and stem_name not in ("piano", "piano.wav"): should_keep = False
         
         # Collect waveforms for THIS stem
         waveforms = []
@@ -513,16 +518,16 @@ def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep
                 # High (> 4000Hz)
                 high_stem = torchaudio.functional.highpass_biquad(blended, current_sr, cutoff_freq=4000)
                 path_high = dst.replace(f".{final_ext}", f"_High.{final_ext}")
-                src_np = high_stem.detach().cpu().t().numpy()
-                sf.write(path_high, src_np, current_sr, subtype=subtype)
+                band_np = high_stem.detach().cpu().t().numpy()
+                sf.write(path_high, band_np, current_sr, subtype=subtype)
                 
                 # Mid (300Hz - 4000Hz)
                 # Apply Highpass(300) then Lowpass(4000)
                 mid_stem = torchaudio.functional.highpass_biquad(blended, current_sr, cutoff_freq=300)
                 mid_stem = torchaudio.functional.lowpass_biquad(mid_stem, current_sr, cutoff_freq=4000)
                 path_mid = dst.replace(f".{final_ext}", f"_Mid.{final_ext}")
-                src_np = mid_stem.detach().cpu().t().numpy()
-                sf.write(path_mid, src_np, current_sr, subtype=subtype)
+                band_np = mid_stem.detach().cpu().t().numpy()
+                sf.write(path_mid, band_np, current_sr, subtype=subtype)
                 
             except Exception as e:
                 logger.error(f"Band splitting failed for {stem_name}: {e}")
@@ -798,7 +803,7 @@ class SplitterWorker(QThread):
                     extra_paths.append(p)
             if extra_paths:
                 env["PATH"] = os.pathsep.join(extra_paths) + os.pathsep + env.get("PATH", "")
-                env["HIP_VISIBLE_DEVICES"] = "1"
+                env["HIP_VISIBLE_DEVICES"] = "0"
             
             self.process = subprocess.Popen(
                 cmd, 
@@ -816,19 +821,16 @@ class SplitterWorker(QThread):
             while True:
                 if self.is_cancelled: break
                 
-                chunk = self.process.stdout.read(1)
-                if not chunk and self.process.poll() is not None: break
+                line_bytes = self.process.stdout.readline()
+                if not line_bytes and self.process.poll() is not None: break
                 
-                if chunk:
-                    buffer += chunk
-                    if chunk in (b'\n', b'\r'):
-                        try:
-                            line = buffer.decode('utf-8', errors='replace').strip()
-                        except Exception:
-                            line = ""
-                        buffer = b""
-                        
-                        if line:
+                if line_bytes:
+                    try:
+                        line = line_bytes.decode('utf-8', errors='replace').strip()
+                    except Exception:
+                        line = ""
+                    
+                    if line:
                             if "%" in line and "|" in line:
                                 try:
                                     parts = line.split('%')[0].split()
