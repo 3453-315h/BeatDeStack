@@ -6,6 +6,7 @@ Avoids "magic strings" scattered across the codebase.
 # --- Operation Modes ---
 MODE_STANDARD = "standard"
 MODE_VOCALS = "vocals_only"
+MODE_LEAD_BACKING = "lead_backing"
 MODE_INSTRUMENTAL = "instrumental"
 MODE_DRUMS = "drums_only"
 MODE_BASS = "bass_only"
@@ -20,6 +21,7 @@ MODEL_HTDEMUCS_6S = "htdemucs_6s"
 
 # Roformer (Vocals)
 MODEL_ROFORMER_VOCALS = "vocals_mel_band_roformer.ckpt"
+MODEL_ROFORMER_KARAOKE = "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt"
 
 # BS-Roformer (Instrumental/Stems)
 MODEL_BS_ROFORMER_INST = "BS_Roformer_2025_07.ckpt"
@@ -28,6 +30,7 @@ MODEL_BS_ROFORMER_INST = "BS_Roformer_2025_07.ckpt"
 MODEL_KIM_VOCAL_2 = "Kim_Vocal_2.onnx"
 MODEL_MDX_INST_HQ_5 = "UVR-MDX-NET-Inst_HQ_5.onnx"
 MODEL_MDX_VOCAL_FT = "UVR-MDX-NET-Voc_FT.onnx"
+MODEL_MDX_KARAOKE = "UVR_MDXNET_KARA_2.onnx"
 MODEL_DEECHO_DEREVERB = "UVR-DeEcho-DeReverb.pth"
 
 # Model Checkpoint Filenames (for detection)

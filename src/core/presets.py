@@ -23,13 +23,23 @@ def _get_presets_dir() -> str:
 
 # Built-in preset definitions
 DEFAULT_PRESETS: Dict[str, Dict[str, Any]] = {
+    "Lead & Backing Vocals": {
+        "description": "Split lead vocals and backing harmonies into separate stems",
+        "stem_count": 2,
+        "mode": "Lead & Backing",
+        "quality": 2,  # Best
+        "dereverb": 0,
+        "denoise": 0,
+        "format": "WAV",
+        "sample_rate": 44100,
+    },
     "Karaoke Master": {
         "description": "Optimized for backing tracks with minimal vocal bleed",
         "stem_count": 2,
         "mode": "Instrumental",
         "quality": 2,  # Best
         "dereverb": 50,
-        "denoise": False,
+        "denoise": 0,
         "format": "MP3",
         "sample_rate": 44100,
     },
@@ -39,7 +49,7 @@ DEFAULT_PRESETS: Dict[str, Dict[str, Any]] = {
         "mode": "Vocals Only",
         "quality": 2,  # Best
         "dereverb": 50,
-        "denoise": True,
+        "denoise": 1,
         "format": "WAV",
         "sample_rate": 44100,
     },

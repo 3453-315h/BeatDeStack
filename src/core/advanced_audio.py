@@ -2,6 +2,7 @@ import os
 import shutil
 import logging
 import time
+import subprocess
 import torch
 import torchaudio
 import soundfile as sf
@@ -191,6 +192,92 @@ class AdvancedAudioProcessor:
                         break
 
         return current_vocals
+
+    def process_lead_backing(self, vocals_file, final_ext="wav", sample_rate=44100):
+        """
+        Splits a vocal track into Lead Vocals and Backing Vocals / Harmonies
+        using a specialized Karaoke/BVE model.
+        
+        Returns:
+            tuple: (lead_vocals_path, backing_vocals_path)
+        """
+        logger.info("Starting Lead & Backing Vocal separation...")
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        models_dir = os.path.join(project_root, "models")
+        
+        # Select best available model (Roformer Karaoke SOTA > MDX Karaoke 2)
+        candidates = [
+            constants.MODEL_ROFORMER_KARAOKE,
+            constants.MODEL_MDX_KARAOKE
+        ]
+        
+        selected_model = candidates[0]
+        # Check if local model file exists for any candidate
+        for m in candidates:
+            if os.path.exists(os.path.join(models_dir, m)):
+                selected_model = m
+                break
+                
+        try:
+            outputs = self.run_mdx(vocals_file, selected_model)
+            lead_temp = None
+            backing_temp = None
+            
+            for f in outputs:
+                base = os.path.basename(f).lower()
+                if "instrumental" in base or "backing" in base or "karaoke" in base:
+                    backing_temp = f
+                elif "vocals" in base or "lead" in base:
+                    lead_temp = f
+            
+            # Fallback if names didn't match patterns
+            if not lead_temp and outputs:
+                lead_temp = outputs[0]
+            if not backing_temp and len(outputs) > 1:
+                backing_temp = outputs[1]
+                
+            from src.utils.resource_utils import get_ffmpeg_path
+            ffmpeg = get_ffmpeg_path()
+            
+            def convert_and_save(src_file, target_name):
+                dst = os.path.join(self.output_dir, f"{target_name}.{final_ext}")
+                if os.path.exists(dst):
+                    try:
+                        os.remove(dst)
+                    except Exception:
+                        pass
+                
+                if final_ext == "wav" and src_file.endswith(".wav"):
+                    shutil.move(src_file, dst)
+                else:
+                    cmd = [ffmpeg, "-y", "-v", "error", "-i", src_file]
+                    if final_ext == "mp3":
+                        cmd.extend(["-b:a", "320k"])
+                    if sample_rate:
+                        cmd.extend(["-ar", str(sample_rate)])
+                    cmd.append(dst)
+                    subprocess.run(cmd, check=True)
+                    if os.path.exists(src_file):
+                        try:
+                            os.remove(src_file)
+                        except Exception:
+                            pass
+                return dst
+
+            lead_path = None
+            backing_path = None
+            if lead_temp and os.path.exists(lead_temp):
+                lead_path = convert_and_save(lead_temp, "lead_vocals")
+                logger.info(f"Created Lead Vocals stem: {lead_path}")
+                
+            if backing_temp and os.path.exists(backing_temp):
+                backing_path = convert_and_save(backing_temp, "backing_vocals")
+                logger.info(f"Created Backing Vocals stem: {backing_path}")
+                
+            return lead_path, backing_path
+        except Exception as e:
+            logger.error(f"Lead & Backing separation failed: {e}")
+            return None, None
 
 
 def apply_audio_enhancement(vocals_file, output_dir, input_file=None, dereverb_intensity=0, deecho_intensity=0, 

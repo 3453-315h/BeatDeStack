@@ -691,6 +691,21 @@ def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep
             except Exception as e:
                 logger.error(f"Advanced Pipeline failed: {e}")
 
+    # Advanced Pipeline (Lead & Backing Vocals - Voice Separation)
+    if mode == constants.MODE_LEAD_BACKING and AdvancedAudioProcessor:
+        vocals_file = os.path.join(output_dir, f"vocals.{final_ext}")
+        if os.path.exists(vocals_file):
+            logger.info("Starting Lead & Backing Vocals Pipeline...")
+            try:
+                processor = AdvancedAudioProcessor(output_dir)
+                processor.process_lead_backing(
+                    vocals_file,
+                    final_ext=final_ext,
+                    sample_rate=kwargs.get("sample_rate", 44100)
+                )
+            except Exception as e:
+                logger.error(f"Lead & Backing Pipeline failed: {e}")
+
     # Zip if requested
     if export_zip:
         shutil.make_archive(output_dir, 'zip', output_dir)

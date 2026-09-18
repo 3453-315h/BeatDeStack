@@ -503,7 +503,7 @@ class MainWindow(QMainWindow):
         
         target_model = constants.MODEL_HTDEMUCS # Ultimate fallback
         
-        if mode == constants.MODE_VOCALS or (stem_count == 2 and mode == constants.MODE_STANDARD):
+        if mode in [constants.MODE_VOCALS, constants.MODE_LEAD_BACKING] or (stem_count == 2 and mode == constants.MODE_STANDARD):
             # Prefer MelBand Roformer for Vocals
             if constants.MODEL_ROFORMER_VOCALS in all_models:
                 target_model = constants.MODEL_ROFORMER_VOCALS
@@ -1066,23 +1066,24 @@ class MainWindow(QMainWindow):
             return
         
         # Apply to stem panel
-        if "stem_count" in preset:
-            idx = {2: 0, 4: 1, 6: 2}.get(preset["stem_count"], 0)
-            self.stem_panel.combo_stems.setCurrentIndex(idx)
         if "mode" in preset:
-            idx = self.stem_panel.combo_mode.findText(preset["mode"])
-            if idx >= 0:
-                self.stem_panel.combo_mode.setCurrentIndex(idx)
+            self.stem_panel.set_mode(preset["mode"], preset.get("stem_count"))
+        elif "stem_count" in preset:
+            self.stem_panel.set_mode("standard", preset["stem_count"])
         
         # Apply to quality panel
         if "quality" in preset:
             self.quality_panel.quality_slider.setValue(preset["quality"])
         
         # Apply to enhancement panel
-        if "dereverb" in preset:
-            self.enhance_panel.chk_dereverb.setChecked(preset["dereverb"])
-        if "denoise" in preset:
-            self.enhance_panel.chk_denoise.setChecked(preset["denoise"])
+        if "dereverb" in preset and hasattr(self.enhance_panel, 'slider_dereverb'):
+            derev = preset["dereverb"]
+            val = 50 if derev is True else (0 if derev is False else int(derev))
+            self.enhance_panel.slider_dereverb.setValue(val)
+        if "denoise" in preset and hasattr(self.enhance_panel, 'slider_denoise'):
+            denoise = preset["denoise"]
+            val = 50 if denoise is True else (0 if denoise is False else int(denoise))
+            self.enhance_panel.slider_denoise.setValue(val)
         
         # Apply to output panel
         if "format" in preset:

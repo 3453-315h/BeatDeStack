@@ -196,6 +196,12 @@ class ModelsView(QWidget):
                 "best_for": "Vocal isolation with minimal bleed",
                 "quality": "Very High"
             },
+            "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt": {
+                "type": "Mel-Band Roformer Karaoke (Aufr33 & Viperx)",
+                "desc": "SOTA Karaoke & Voice Separation model. Splits vocals into Lead Vocals and Backing Harmonies / Ad-libs.",
+                "best_for": "Lead and backing vocal separation, karaoke",
+                "quality": "State-of-the-Art (14.7 SDR)"
+            },
             "UVR_MDXNET_KARA_2.onnx": {
                 "type": "MDX-Net Karaoke",
                 "desc": "Specialized for creating karaoke tracks. Removes vocals while preserving instrumental backing perfectly.",

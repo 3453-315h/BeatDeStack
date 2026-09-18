@@ -3,8 +3,14 @@
 # StemLab Linux Run Script
 # ==========================================
 
-# Try ROCm venv first, then CPU
-if [ -d "venv_rocm" ]; then
+# Try virtual environments
+if [ -d ".venv" ]; then
+    echo "Using .venv virtual environment..."
+    source .venv/bin/activate
+elif [ -d "venv_cuda" ]; then
+    echo "Using CUDA virtual environment..."
+    source venv_cuda/bin/activate
+elif [ -d "venv_rocm" ]; then
     echo "Using ROCm virtual environment..."
     source venv_rocm/bin/activate
 elif [ -d "venv_cpu" ]; then
@@ -12,7 +18,6 @@ elif [ -d "venv_cpu" ]; then
     source venv_cpu/bin/activate
 else
     echo "ERROR: No virtual environment found!"
-    echo "Run build_rocm.sh first."
     exit 1
 fi
 
