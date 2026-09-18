@@ -7,6 +7,7 @@ from PyQt6.QtCore import Qt, QSettings, QTimer, pyqtSignal
 from src.ui.style import COLORS
 from src.utils.resource_utils import get_resource_path
 from src.core.gpu_utils import get_gpu_info
+from src import __version__
 import os
 
 
@@ -277,7 +278,7 @@ class SettingsDialog(QDialog):
                 <h2 style='color: {COLORS['text']}; margin: 0;'>
                     Beat<span style='color: #FF4444;'>De</span>Stack e<span style='color: #FF4444;'>X</span>tended
                 </h2>
-                <p style='color: {COLORS['text_dim']}; margin: 5px 0 0 0;'>v3.9.0 ({edition})</p>
+                <p style='color: {COLORS['text_dim']}; margin: 5px 0 0 0;'>v{__version__} ({edition})</p>
             </div>"""
         )
         self.title_label.setTextFormat(Qt.TextFormat.RichText)

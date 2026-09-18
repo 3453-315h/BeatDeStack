@@ -22,6 +22,7 @@ from src.core.model_manager import ModelManager
 from src.ui.player import StemPlayerWidget
 from src.utils.resource_utils import get_resource_path
 from src.core import constants
+from src import __version__
 
 
 # Cross-platform helper functions
@@ -81,7 +82,7 @@ class StreamRedirector:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("BeatDeStack eXtended v3.9.0")
+        self.setWindowTitle(f"BeatDeStack eXtended v{__version__}")
         self.resize(1280, 850)
         
         self.model_manager = ModelManager()

@@ -1,4 +1,4 @@
-# BeatDeStack Extended v3.9.0
+# BeatDeStack Extended v3.10.0
 
 **The Ultimate Offline AI Stem Separation & Audio Enhancement Tool.**
 
@@ -18,6 +18,7 @@ Choose from a wide range of extraction modes to suit your workflow:
 * **4-Stem**: Vocals, Drums, Bass, Other.
 * **6-Stem**: Vocals, Drums, Bass, Guitar, Piano, Other.
 * **Vocals Only**: Specialized pipeline for pristine acapellas using top-tier models like `Kim_Vocal_2`.
+* **Lead & Backing Vocals (Split Voices)**: Specialized 2-pass neural pipeline isolating the main lead vocal from backing harmonies, ad-libs, and choir tracks.
 * **Instrumental / Karaoke**: High-quality backing tracks with minimal vocal bleed.
 
 ### Audio Enhancement Suite
@@ -40,10 +41,11 @@ Turn your audio into editable MIDI notes!
 
 ---
 
-### 🎛️ Processing Presets (NEW in v3.9.0)
+### 🎛️ Processing Presets
 
 Quickly apply optimized settings with built-in presets:
 
+* **Lead & Backing Vocals (NEW)**: Automated 2-stage voice isolation (main melody vocals vs. harmonies/backing choir)
 * **Karaoke Master**: 2-stem instrumental with de-reverb
 * **Vocal Extract**: Ultra-clean acapella with de-reverb + de-noise
 * **Full Stems (DJ)**: 4-stem split for remixing
@@ -51,16 +53,26 @@ Quickly apply optimized settings with built-in presets:
 * **Quick Preview**: Fast 2-stem for quick checks
 * **Save Custom Presets**: Create your own configurations
 
-### 🎵 BPM & Key Detection (NEW in v3.9.0)
+### 🎵 BPM & Key Detection
 
 Automatically analyze your audio:
 
+* **Non-Blocking Background Engine (NEW in v3.10.0)**: Batch file queueing analyzes BPM and key on a background thread pool without UI latency.
 * **BPM Detection**: Tempo estimation using librosa
 * **Key Detection**: Musical key via chroma feature analysis
 * **Display in Queue**: See BPM/Key info for each file
 * **Filename Option**: Include BPM/Key in output filenames (e.g., `song_128bpm_Amin_vocals.mp3`)
 
-### ⌨️ Keyboard Shortcuts (NEW in v3.9.0)
+### ⚡ Concurrency & Real-Time Monitoring (NEW in v3.10.0)
+
+Engineered for rock-solid stability, low latency, and efficient resource utilization:
+
+* **Live VRAM & GPU Monitor**: Real-time status bar badge tracking GPU VRAM allocation (supports NVIDIA CUDA and AMD ROCm, auto-hides in CPU mode).
+* **Thread-Safe Model Execution**: Model cache locking and serialized separator pipelines eliminate race conditions and out-of-memory crashes.
+* **Zero-Copy Memory Audio Pipeline**: Direct in-memory buffer transfer between processing steps avoids redundant disk writes and re-encoding.
+* **Self-Rotating Debug Logger**: 5MB rotating file logger preserves disk space while ensuring debuggability.
+
+### ⌨️ Keyboard Shortcuts
 
 | Key | Action |
 |-----|--------|
@@ -84,6 +96,7 @@ Controls which parts of the audio are extracted.
 * **Mode**:
   * **Standard**: Normal separation.
   * **Vocals Only**: Runs a specialized "Ultra Clean" pipeline (extract -> subtract -> clean) for studio-grade acapellas.
+  * **Split Lead & Backing Vocals**: Isolates main lead vocals from background harmonies and choir into distinct files.
   * **Instrumental**: Optimized for backing tracks.
   * **Drums/Bass/Guitar**: Extracts only that specific stem to save time.
 
