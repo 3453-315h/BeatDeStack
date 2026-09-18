@@ -1,7 +1,15 @@
 import os
-from basic_pitch.inference import predict_and_save
-from basic_pitch import ICASSP_2022_MODEL_PATH
 from src.utils.logger import logger
+
+try:
+    from basic_pitch.inference import predict_and_save
+    from basic_pitch import ICASSP_2022_MODEL_PATH
+    BASIC_PITCH_AVAILABLE = True
+except ImportError:
+    predict_and_save = None
+    ICASSP_2022_MODEL_PATH = None
+    BASIC_PITCH_AVAILABLE = False
+    logger.warning("basic_pitch not installed. MIDI export unavailable. Install with: pip install basic-pitch")
 
 class MidiConverter:
     def __init__(self):
@@ -21,8 +29,14 @@ class MidiConverter:
         Returns:
             str: Path to the generated MIDI file.
         """
+        if not BASIC_PITCH_AVAILABLE:
+            raise RuntimeError(
+                "basic_pitch is not installed. Install it with: pip install basic-pitch"
+            )
+
         if not os.path.exists(audio_path):
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
+
 
         if output_path is None:
             base_name = os.path.splitext(os.path.basename(audio_path))[0]

@@ -7,14 +7,25 @@ import torch
 import torchaudio
 import soundfile as sf
 import numpy as np
-from audio_separator.separator import Separator
 from src.utils.logger import logger
 import src.core.dsp as dsp
 from src.core import constants
 
+try:
+    from audio_separator.separator import Separator
+    AUDIO_SEPARATOR_AVAILABLE = True
+except ImportError:
+    Separator = None
+    AUDIO_SEPARATOR_AVAILABLE = False
+    logger.warning("audio-separator not installed. AI enhancement models unavailable.")
+
 class AdvancedAudioProcessor:
     def __init__(self, output_dir):
         self.output_dir = output_dir
+        if not AUDIO_SEPARATOR_AVAILABLE:
+            self.separator = None
+            logger.warning("AdvancedAudioProcessor: audio-separator not available. AI models disabled.")
+            return
         self.separator = Separator(
             log_level=logging.INFO,
             output_dir=output_dir,
@@ -25,7 +36,10 @@ class AdvancedAudioProcessor:
         """
         Runs a specific MDX model using audio-separator.
         Returns the path to the output file.
+        Raises RuntimeError if audio-separator is not installed.
         """
+        if self.separator is None:
+            raise RuntimeError("audio-separator is not installed. Cannot run MDX model.")
         logger.info(f"Loading MDX Model: {model_name}")
         self.separator.load_model(model_filename=model_name)
         
@@ -300,18 +314,21 @@ def apply_audio_enhancement(vocals_file, output_dir, input_file=None, dereverb_i
     try:
         import traceback
         
-        # Try to initialize Separator, but it may fail in bundled EXE
+        # Try to initialize Separator (only if audio-separator is installed)
         separator = None
-        try:
-            separator = Separator(
-                log_level=logging.INFO,
-                output_dir=output_dir,
-                output_format="wav"
-            )
-        except Exception as sep_err:
-            logger.warning(f"Separator init failed (AI models unavailable): {sep_err}")
-            logger.debug(traceback.format_exc())
-            # Continue without AI models - DSP fallbacks will be used
+        if AUDIO_SEPARATOR_AVAILABLE:
+            try:
+                separator = Separator(
+                    log_level=logging.INFO,
+                    output_dir=output_dir,
+                    output_format="wav"
+                )
+            except Exception as sep_err:
+                logger.warning(f"Separator init failed (AI models unavailable): {sep_err}")
+                logger.debug(traceback.format_exc())
+                # Continue without AI models - DSP fallbacks will be used
+        else:
+            logger.info("audio-separator not installed. Using DSP-only enhancement pipeline.")
         
         # Read vocals for blending
         original_data, sr = sf.read(vocals_file)

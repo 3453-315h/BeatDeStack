@@ -1,4 +1,5 @@
 import logging
+import logging.handlers
 import sys
 import os
 
@@ -13,7 +14,7 @@ def setup_logger():
     ch.setFormatter(formatter)
     logger.addHandler(ch)
     
-    # File handler - writes to log file next to EXE or in project root
+    # Rotating file handler — keeps up to 5MB × 3 backup files, appends across sessions
     try:
         if getattr(sys, 'frozen', False):
             # Running as EXE - log next to executable
@@ -23,7 +24,13 @@ def setup_logger():
             log_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         
         log_file = os.path.join(log_dir, "beatdestack_debug.log")
-        fh = logging.FileHandler(log_file, mode='w', encoding='utf-8')
+        fh = logging.handlers.RotatingFileHandler(
+            log_file,
+            mode='a',
+            maxBytes=5 * 1024 * 1024,  # 5MB per file
+            backupCount=3,
+            encoding='utf-8'
+        )
         fh.setLevel(logging.DEBUG)
         fh.setFormatter(formatter)
         logger.addHandler(fh)

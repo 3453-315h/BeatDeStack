@@ -20,10 +20,20 @@ except ImportError:
     apply_audio_enhancement = None
     logger.warning("AdvancedAudioProcessor not available (audio-separator missing?)")
 
-# Monkeypatch torchaudio to use soundfile directly (Fix for Python 3.14 / torchaudio 2.9.1)
+# Monkeypatch torchaudio to use soundfile directly.
+# Rationale: On Python 3.12+ with torchaudio 2.9.x, the default 'soundfile'
+# backend may fail to initialize on some Linux configurations. This patch
+# ensures consistent behavior across all platforms using soundfile directly.
+#
+# IMPORTANT: This patch is intentionally limited. It does NOT support the
+# following torchaudio.load() kwargs: normalize, frame_offset, num_frames,
+# channels_first, format, buffer_size, backend. If any downstream library
+# calls torchaudio.load() with these kwargs, they will be silently ignored.
+# Currently demucs does not use these kwargs, so this is safe.
 def custom_load(filepath, *args, **kwargs):
-    wav, sr = sf.read(filepath)
-    wav = torch.tensor(wav).float()
+    """soundfile-backed replacement for torchaudio.load."""
+    wav, sr = sf.read(filepath, always_2d=False)
+    wav = torch.tensor(wav, dtype=torch.float32)
     if wav.ndim == 1:
         wav = wav.unsqueeze(0)
     else:
@@ -31,6 +41,7 @@ def custom_load(filepath, *args, **kwargs):
     return wav, sr
 
 def custom_save(filepath, src, sample_rate, **kwargs):
+    """soundfile-backed replacement for torchaudio.save."""
     src = src.detach().cpu().t().numpy()
     sf.write(filepath, src, sample_rate)
 
@@ -97,6 +108,51 @@ def _apply_time_stretch(audio: torch.Tensor, speed: float) -> torch.Tensor:
     except Exception as e:
         logger.error(f"Time stretch failed: {e}")
         return audio
+
+def _convert_to_format(
+    src_path: str,
+    dst_path: str,
+    fmt: str = "WAV",
+    sample_rate: int = DEFAULT_SAMPLE_RATE,
+    bit_depth: str = "16-bit",
+    bitrate: str = "320k",
+) -> str:
+    """
+    Convert an audio file to the target format using FFmpeg or soundfile.
+
+    Args:
+        src_path: Source audio file path.
+        dst_path: Destination file path (should have correct extension).
+        fmt: Output format string (e.g. "WAV", "MP3", "FLAC").
+        sample_rate: Output sample rate in Hz.
+        bit_depth: Bit depth string ("16-bit", "24-bit", "32-bit Float").
+        bitrate: MP3/AAC bitrate (e.g. "320k").
+
+    Returns:
+        The destination path on success, or src_path if conversion fails.
+    """
+    fmt_lower = fmt.lower()
+
+    if fmt_lower == "mp3":
+        from src.utils.resource_utils import get_ffmpeg_path
+        ffmpeg = get_ffmpeg_path()
+        cmd = [ffmpeg, "-y", "-i", src_path, "-b:a", bitrate, "-ar", str(sample_rate), dst_path]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            logger.warning(f"FFmpeg MP3 conversion failed: {result.stderr}")
+            return src_path
+        return dst_path
+
+    # For lossless formats (WAV, FLAC, AIFF, OGG), use soundfile
+    try:
+        data, sr = sf.read(src_path)
+        subtype = _get_audio_subtype(fmt_lower, bit_depth)
+        sf.write(dst_path, data, sample_rate, subtype=subtype)
+        return dst_path
+    except Exception as e:
+        logger.warning(f"Format conversion failed ({src_path} -> {dst_path}): {e}")
+        return src_path
+
 
 def _is_demucs_model(model_name):
     """Check if model is a Demucs model (uses demucs.separate)."""
@@ -387,15 +443,24 @@ def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep
         
         stem_name = os.path.splitext(stem_file)[0]
         
-        # Filter based on mode
+        # Filter based on mode.
+        # NOTE: stem_name is already extension-stripped (os.path.splitext), so
+        # it will never equal "drums.wav", "bass.wav" etc. Use string containment.
         should_keep = True
-        
-        if mode == constants.MODE_VOCALS and "vocals" not in stem_name: should_keep = False
-        elif mode == constants.MODE_INSTRUMENTAL and "no_vocals" not in stem_name and "instrumental" not in stem_name: should_keep = False
-        elif mode == constants.MODE_DRUMS and stem_name not in ("drums", "drums.wav"): should_keep = False
-        elif mode == constants.MODE_BASS and stem_name not in ("bass", "bass.wav"): should_keep = False
-        elif mode == constants.MODE_GUITAR and stem_name not in ("guitar", "guitar.wav"): should_keep = False
-        elif mode == constants.MODE_PIANO and stem_name not in ("piano", "piano.wav"): should_keep = False
+
+        if mode == constants.MODE_VOCALS and "vocals" not in stem_name:
+            should_keep = False
+        elif mode == constants.MODE_INSTRUMENTAL and "no_vocals" not in stem_name and "instrumental" not in stem_name:
+            should_keep = False
+        elif mode == constants.MODE_DRUMS and stem_name != "drums":
+            should_keep = False
+        elif mode == constants.MODE_BASS and stem_name != "bass":
+            should_keep = False
+        elif mode == constants.MODE_GUITAR and stem_name != "guitar":
+            should_keep = False
+        elif mode == constants.MODE_PIANO and stem_name != "piano":
+            should_keep = False
+
         
         # Collect waveforms for THIS stem
         waveforms = []
@@ -721,6 +786,9 @@ class SplitterWorker(QThread):
     error_occurred = pyqtSignal(str, str) # filename, error message
     log_message = pyqtSignal(str) # log text for GUI display
 
+    # Default timeout: 30 minutes. Override via options["timeout_seconds"].
+    DEFAULT_TIMEOUT_SECONDS = 1800
+
     def __init__(self, file_path, options):
         super().__init__()
         self.file_path = file_path
@@ -731,87 +799,51 @@ class SplitterWorker(QThread):
     def run(self):
         filename = os.path.basename(self.file_path)
         logger.info(f"Starting processing for {filename} with options: {self.options}")
-        
+
         try:
             base_name = os.path.splitext(filename)[0]
             output_dir = os.path.join(os.path.dirname(self.file_path), f"{base_name} - Stems")
-            
-            # Reconstruct config dict for subprocess
-            config = {
-                "input_file": self.file_path,
-                "output_dir": output_dir,
-                "stem_count": self.options.get("stem_count", 4),
-                "quality": self.options.get("quality", 2),
-                "export_zip": self.options.get("export_zip", False),
-                "keep_original": self.options.get("keep_original", True),
-                "format": self.options.get("format", "WAV"),
-                "sample_rate": self.options.get("sample_rate", 44100),
-                "bit_depth": self.options.get("bit_depth", "16-bit"),
-                "mode": self.options.get("mode", "standard"),
-                "dereverb": self.options.get("dereverb", 0),
-                "deecho": self.options.get("deecho", 0),
-                "denoise": self.options.get("denoise", 0),
-                "clarity": self.options.get("clarity", 0),
-                "ensemble": self.options.get("ensemble", 0),
-                "bass_boost": self.options.get("bass_boost", 0),
-                "stereo_width": self.options.get("stereo_width", 100),
-                "low_cut": self.options.get("low_cut", False),
-                "eq_low": self.options.get("eq_low", 0),
-                "eq_mid": self.options.get("eq_mid", 0),
-                "eq_high": self.options.get("eq_high", 0),
-                "compressor": self.options.get("compressor", 0),
-                "exciter": self.options.get("exciter", 0),
-                "model": self.options.get("model", "htdemucs"),
-                "shifts": self.options.get("shifts", 1),
-                "overlap": self.options.get("overlap", 0.25),
-                "segment": self.options.get("segment", 0),
-                "jobs": self.options.get("jobs", 0),
-                "batch_size": self.options.get("batch_size", 1),
-                "normalization": self.options.get("normalization", 0.9),
-                "clip_mode": self.options.get("clip_mode", "rescale"),
-                
-                # New Ensemble Args
-                "ensemble_enabled": self.options.get("ensemble_enabled", False),
-                "ensemble_models": self.options.get("ensemble_models", []),
-                "ensemble_algo": self.options.get("ensemble_algo", "Average (Mean)"),
 
-                # Audio Manipulation
-                "pitch_shift": self.options.get("pitch_shift", 0),
-                "time_stretch": self.options.get("time_stretch", 1.0),
-                "split_bands": self.options.get("split_bands", False),
-                
-                # Other
-                "invert": self.options.get("invert", False),
-                "filename_pattern": self.options.get("filename_pattern", "{stem}")
-            }
-            
+            # Build subprocess config from options (single source of truth)
+            # Merge with required fields that the worker subprocess needs.
+            config = dict(self.options)  # shallow copy
+            config["input_file"] = self.file_path
+            config["output_dir"] = output_dir
+            # Ensure required fields have sensible defaults if not set by UI
+            config.setdefault("stem_count", 4)
+            config.setdefault("quality", 2)
+            config.setdefault("export_zip", False)
+            config.setdefault("keep_original", False)
+            config.setdefault("mode", constants.MODE_STANDARD)
+            config.setdefault("model", constants.MODEL_HTDEMUCS)
+
             config_json = json.dumps(config)
-            
+
             cmd = [sys.executable, "-u", "main.py", "--worker", config_json]
             if getattr(sys, 'frozen', False):
                 cmd = [sys.executable, "--worker", config_json]
-            
+
             self.progress_updated.emit(filename, 10, "Starting Worker...")
-            
+
             startupinfo = None
             if os.name == 'nt':
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            
+
             env = os.environ.copy()
             env["PYTHONUNBUFFERED"] = "1"
             env["PYTHONIOENCODING"] = "utf-8"
-            
+
             script_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             rocm_bin = os.path.join(script_dir, "rocm_runtime", "bin")
             rocm_lib = os.path.join(script_dir, "rocm_runtime", "lib")
-            
+
             venv_site = os.path.dirname(os.path.dirname(sys.executable))
             if "site-packages" not in venv_site:
                 venv_site = os.path.join(venv_site, "Lib", "site-packages")
             rocm_sdk_bin = os.path.join(venv_site, "_rocm_sdk_core", "bin")
             rocm_sdk_lib = os.path.join(venv_site, "_rocm_sdk_libraries_custom", "bin")
-            
+
             extra_paths = []
             for p in [rocm_bin, rocm_lib, rocm_sdk_bin, rocm_sdk_lib]:
                 if os.path.exists(p):
@@ -819,72 +851,88 @@ class SplitterWorker(QThread):
             if extra_paths:
                 env["PATH"] = os.pathsep.join(extra_paths) + os.pathsep + env.get("PATH", "")
                 env["HIP_VISIBLE_DEVICES"] = "0"
-            
+
             self.process = subprocess.Popen(
-                cmd, 
-                stdout=subprocess.PIPE, 
+                cmd,
+                stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=False,
                 startupinfo=startupinfo,
                 bufsize=0,
                 env=env
             )
-            
+
             self.progress_updated.emit(filename, 20, "Separating...")
-            
-            buffer = b""
+
+            # Timeout tracking
+            timeout_seconds = self.options.get("timeout_seconds", self.DEFAULT_TIMEOUT_SECONDS)
+            start_time = time.time()
+
             while True:
-                if self.is_cancelled: break
-                
+                if self.is_cancelled:
+                    break
+
+                # Enforce timeout
+                elapsed = time.time() - start_time
+                if elapsed > timeout_seconds:
+                    logger.error(
+                        f"Worker timed out after {timeout_seconds}s for {filename}. Killing process."
+                    )
+                    self.process.kill()
+                    raise Exception(
+                        f"Processing timed out after {int(timeout_seconds // 60)} minutes. "
+                        "Try a shorter file or lower quality setting."
+                    )
+
                 line_bytes = self.process.stdout.readline()
-                if not line_bytes and self.process.poll() is not None: break
-                
+                if not line_bytes and self.process.poll() is not None:
+                    break
+
                 if line_bytes:
                     try:
                         line = line_bytes.decode('utf-8', errors='replace').strip()
                     except Exception:
                         line = ""
-                    
+
                     if line:
-                            if "%" in line and "|" in line:
-                                try:
-                                    parts = line.split('%')[0].split()
-                                    if parts:
-                                        pct = int(parts[-1])
-                                        total_progress = 20 + int(pct * 0.7)
-                                        self.progress_updated.emit(filename, total_progress, f"Separating: {pct}%")
-                                except Exception:
-                                    pass
-                            
-                            is_progress_bar = "%" in line and "|" in line
-                            if not is_progress_bar:
-                                logger.info(f"[Worker] {line}")
-                                self.log_message.emit(f"[Worker] {line}")
-                                
-                                # Detailed progress phase detection
-                                if "Loading" in line:
-                                    self.progress_updated.emit(filename, 10, "Loading Model...")
-                                elif "Running Model" in line:
-                                    # Extract model name if possible
-                                    model_part = line.split(":")[-1].strip() if ":" in line else ""
-                                    self.progress_updated.emit(filename, 15, f"Running: {model_part[:20]}...")
-                                elif "Separating" in line:
-                                    self.progress_updated.emit(filename, 20, "Separating...")
-                                elif "Found Stems" in line:
-                                    self.progress_updated.emit(filename, 85, "Processing Stems...")
-                                elif "Applying" in line and "Enhancement" in line:
-                                    self.progress_updated.emit(filename, 88, "Applying Enhancements...")
-                                elif "Ultra Clean" in line or "Vocals Only" in line:
-                                    self.progress_updated.emit(filename, 88, "Ultra Clean Pipeline...")
-                                elif "De-Reverb" in line or "DeReverb" in line:
-                                    self.progress_updated.emit(filename, 90, "Removing Reverb...")
-                                elif "De-Noise" in line or "DeNoise" in line:
-                                    self.progress_updated.emit(filename, 91, "Removing Noise...")
-                                elif "Converting" in line:
-                                    self.progress_updated.emit(filename, 93, "Converting Format...")
-                                elif "Created" in line:
-                                    self.progress_updated.emit(filename, 94, "Writing Files...")
-            
+                        if "%" in line and "|" in line:
+                            try:
+                                parts = line.split('%')[0].split()
+                                if parts:
+                                    pct = int(parts[-1])
+                                    total_progress = 20 + int(pct * 0.7)
+                                    self.progress_updated.emit(filename, total_progress, f"Separating: {pct}%")
+                            except Exception:
+                                pass
+
+                        is_progress_bar = "%" in line and "|" in line
+                        if not is_progress_bar:
+                            logger.info(f"[Worker] {line}")
+                            self.log_message.emit(f"[Worker] {line}")
+
+                            # Detailed progress phase detection
+                            if "Loading" in line:
+                                self.progress_updated.emit(filename, 10, "Loading Model...")
+                            elif "Running Model" in line:
+                                model_part = line.split(":")[-1].strip() if ":" in line else ""
+                                self.progress_updated.emit(filename, 15, f"Running: {model_part[:20]}...")
+                            elif "Separating" in line:
+                                self.progress_updated.emit(filename, 20, "Separating...")
+                            elif "Found Stems" in line:
+                                self.progress_updated.emit(filename, 85, "Processing Stems...")
+                            elif "Applying" in line and "Enhancement" in line:
+                                self.progress_updated.emit(filename, 88, "Applying Enhancements...")
+                            elif "Ultra Clean" in line or "Vocals Only" in line:
+                                self.progress_updated.emit(filename, 88, "Ultra Clean Pipeline...")
+                            elif "De-Reverb" in line or "DeReverb" in line:
+                                self.progress_updated.emit(filename, 90, "Removing Reverb...")
+                            elif "De-Noise" in line or "DeNoise" in line:
+                                self.progress_updated.emit(filename, 91, "Removing Noise...")
+                            elif "Converting" in line:
+                                self.progress_updated.emit(filename, 93, "Converting Format...")
+                            elif "Created" in line:
+                                self.progress_updated.emit(filename, 94, "Writing Files...")
+
             if self.is_cancelled: return
 
             # Wait for process to fully exit

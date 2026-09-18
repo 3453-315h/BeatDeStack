@@ -1,11 +1,27 @@
+# --- Core UI ---
 PyQt6
+
+# --- Audio Separation (Core) ---
 demucs
-audio-separator[gpu]
 torch
 torchaudio
-numpy
 soundfile
-pydub
-pyinstaller
+numpy
+
+# --- Audio Separation (Optional AI models) ---
+audio-separator[gpu]
+
+# --- DSP & Analysis ---
 scipy
 noisereduce
+librosa
+
+# --- Audio Utilities ---
+pydub
+
+# --- MIDI Export (Optional) ---
+# Uncomment to enable MIDI export:
+# basic-pitch
+
+# --- Build ---
+pyinstaller
