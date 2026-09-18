@@ -5,11 +5,11 @@ try:
     from basic_pitch.inference import predict_and_save
     from basic_pitch import ICASSP_2022_MODEL_PATH
     BASIC_PITCH_AVAILABLE = True
-except ImportError:
+except Exception as e:
     predict_and_save = None
     ICASSP_2022_MODEL_PATH = None
     BASIC_PITCH_AVAILABLE = False
-    logger.warning("basic_pitch not installed. MIDI export unavailable. Install with: pip install basic-pitch")
+    logger.warning(f"basic_pitch not available ({e}). MIDI export unavailable.")
 
 class MidiConverter:
     def __init__(self):

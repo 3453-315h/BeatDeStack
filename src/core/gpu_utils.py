@@ -104,3 +104,32 @@ def clear_gpu_cache():
         torch.cuda.synchronize()
         logger.debug("GPU cache cleared")
 
+
+def get_vram_usage() -> dict:
+    """Returns VRAM usage stats if CUDA is available.
+    
+    Returns:
+        dict: {
+            "available": bool,
+            "allocated_gb": float,
+            "reserved_gb": float,
+            "total_gb": float,
+            "percent": float
+        }
+    """
+    if torch.cuda.is_available():
+        try:
+            allocated = torch.cuda.memory_allocated() / (1024 ** 3)
+            reserved = torch.cuda.memory_reserved() / (1024 ** 3)
+            total = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+            return {
+                "available": True,
+                "allocated_gb": round(allocated, 2),
+                "reserved_gb": round(reserved, 2),
+                "total_gb": round(total, 2),
+                "percent": round((reserved / total) * 100, 1) if total > 0 else 0
+            }
+        except Exception as e:
+            logger.debug(f"Failed to read VRAM stats: {e}")
+    return {"available": False}
+

@@ -35,3 +35,16 @@ class QualityModePanel(QGroupBox):
     def get_quality(self):
         """Returns quality value (0=Fast, 1=Balanced, 2=Best)."""
         return self.slider_quality.value()
+
+    def set_quality(self, value: int):
+        """Set quality value (0=Fast, 1=Balanced, 2=Best)."""
+        self.slider_quality.setValue(value)
+
+    @property
+    def quality_slider(self):
+        """Compatibility property for quality_slider access."""
+        return self.slider_quality
+
+    def get_values(self):
+        """Returns dict of quality settings."""
+        return {"quality": self.get_quality()}

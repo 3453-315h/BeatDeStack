@@ -5,6 +5,7 @@ import os
 import json
 from typing import List, Dict, Optional, Any, Union
 from src.utils.logger import logger
+from src.core import constants
 
 # Default preset storage location
 def _get_presets_dir() -> str:
@@ -31,7 +32,7 @@ DEFAULT_PRESETS: Dict[str, Dict[str, Any]] = {
         "dereverb": 0,
         "denoise": 0,
         "format": "WAV",
-        "sample_rate": 44100,
+        "sample_rate": constants.DEFAULT_SAMPLE_RATE,
     },
     "Karaoke Master": {
         "description": "Optimized for backing tracks with minimal vocal bleed",
@@ -41,7 +42,7 @@ DEFAULT_PRESETS: Dict[str, Dict[str, Any]] = {
         "dereverb": 50,
         "denoise": 0,
         "format": "MP3",
-        "sample_rate": 44100,
+        "sample_rate": constants.DEFAULT_SAMPLE_RATE,
     },
     "Vocal Extract": {
         "description": "Ultra-clean acapella extraction",
@@ -49,27 +50,27 @@ DEFAULT_PRESETS: Dict[str, Dict[str, Any]] = {
         "mode": "Vocals Only",
         "quality": 2,  # Best
         "dereverb": 50,
-        "denoise": 1,
+        "denoise": 50,
         "format": "WAV",
-        "sample_rate": 44100,
+        "sample_rate": constants.DEFAULT_SAMPLE_RATE,
     },
     "Full Stems (DJ)": {
         "description": "4-stem split for DJing and remixing",
         "stem_count": 4,
         "mode": "Standard",
         "quality": 1,  # Balanced
-        "dereverb": False,
-        "denoise": False,
+        "dereverb": 0,
+        "denoise": 0,
         "format": "WAV",
-        "sample_rate": 44100,
+        "sample_rate": constants.DEFAULT_SAMPLE_RATE,
     },
     "Producer Pack": {
         "description": "Full 6-stem separation at highest quality",
         "stem_count": 6,
         "mode": "Standard",
         "quality": 2,  # Best
-        "dereverb": False,
-        "denoise": False,
+        "dereverb": 0,
+        "denoise": 0,
         "format": "WAV",
         "sample_rate": 48000,
         "bit_depth": "24-bit",
@@ -79,10 +80,10 @@ DEFAULT_PRESETS: Dict[str, Dict[str, Any]] = {
         "stem_count": 2,
         "mode": "Standard",
         "quality": 0,  # Fast
-        "dereverb": False,
-        "denoise": False,
+        "dereverb": 0,
+        "denoise": 0,
         "format": "MP3",
-        "sample_rate": 44100,
+        "sample_rate": constants.DEFAULT_SAMPLE_RATE,
     },
 }
 

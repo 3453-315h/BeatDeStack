@@ -1,6 +1,6 @@
 """
 Centralized constants for BeatDeStack.
-Avoids "magic strings" scattered across the codebase.
+Avoids "magic strings" and magic numbers scattered across the codebase.
 """
 
 # --- Operation Modes ---
@@ -41,3 +41,22 @@ CLEANUP_PATTERNS = ["_temp_", "(No Reverb)", "(Reverb)", "vocals_ensemble", "Kim
 
 # --- Preset Names ---
 PRESET_DEFAULT = "Default (Balanced)"
+
+# --- Audio Processing Constants ---
+# Default sample rate for conversion and analysis
+DEFAULT_SAMPLE_RATE = 44100
+# Analysis sample rate (lower for speed; librosa resamples internally)
+ANALYSIS_SAMPLE_RATE = 22050
+# Default analysis duration in seconds (limits memory use on long files)
+ANALYSIS_DURATION_SECONDS = 60.0
+# MP3 output bitrate
+MP3_BITRATE = "320k"
+# FFT window size for time-stretch and spectral processing
+FFT_N = 2048
+# Band-split crossover frequencies (Hz)
+BAND_LOW_HZ = 300
+BAND_HIGH_HZ = 4000
+# GPU memory fraction to allocate (0.0–1.0)
+GPU_MEMORY_FRACTION = 0.9
+# Default pre-conversion sample rate for WAV intermediate files
+PRE_CONVERSION_SAMPLE_RATE = 44100

@@ -4,6 +4,7 @@ import sys
 import subprocess
 import json
 import time
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import torch
 import torchaudio
@@ -31,9 +32,10 @@ except ImportError:
 # calls torchaudio.load() with these kwargs, they will be silently ignored.
 # Currently demucs does not use these kwargs, so this is safe.
 def custom_load(filepath, *args, **kwargs):
-    """soundfile-backed replacement for torchaudio.load."""
-    wav, sr = sf.read(filepath, always_2d=False)
-    wav = torch.tensor(wav, dtype=torch.float32)
+    """soundfile-backed replacement for torchaudio.load.
+    Uses float32 and torch.from_numpy to avoid redundant memory copies."""
+    wav, sr = sf.read(filepath, always_2d=False, dtype='float32')
+    wav = torch.from_numpy(wav)
     if wav.ndim == 1:
         wav = wav.unsqueeze(0)
     else:
@@ -59,13 +61,14 @@ QUALITY_PRESETS = {
 }
 
 # Audio format constants
-DEFAULT_SAMPLE_RATE = 44100
-DEFAULT_N_FFT = 2048
+DEFAULT_SAMPLE_RATE = constants.DEFAULT_SAMPLE_RATE
+DEFAULT_N_FFT = constants.FFT_N
 
 # Model Hot-Loading Cache (Performance Optimization #9)
 # Keeps loaded models in memory to avoid reloading weights for each file
 _separator_cache: dict = {}  # {model_name: Separator}
 _current_cached_model: str | None = None  # Track current model for cache invalidation
+_separator_lock = threading.Lock()  # Synchronizes separator access and output_dir assignment
 
 
 def _get_audio_subtype(format_ext: str, bit_depth: str) -> str | None:
@@ -115,7 +118,7 @@ def _convert_to_format(
     fmt: str = "WAV",
     sample_rate: int = DEFAULT_SAMPLE_RATE,
     bit_depth: str = "16-bit",
-    bitrate: str = "320k",
+    bitrate: str = constants.MP3_BITRATE,
 ) -> str:
     """
     Convert an audio file to the target format using FFmpeg or soundfile.
@@ -170,6 +173,7 @@ def _run_audio_separator(input_file, model_name, output_dir, **kwargs):
     
     Uses model hot-loading: keeps the Separator cached in memory.
     Clears cache when switching to a different model.
+    Thread-safe via _separator_lock to prevent output_dir race conditions.
     """
     global _separator_cache, _current_cached_model
     
@@ -183,41 +187,42 @@ def _run_audio_separator(input_file, model_name, output_dir, **kwargs):
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     models_dir = os.path.join(project_root, "models")
     
-    try:
-        # Check if we need to clear cache (model switch)
-        if _current_cached_model and _current_cached_model != model_name:
-            logger.info(f"Model switch detected: {_current_cached_model} -> {model_name}. Clearing cache.")
-            _separator_cache.clear()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        
-        # Check if model is already cached
-        if model_name in _separator_cache:
-            logger.info(f"Using cached model: {model_name} (hot-loaded)")
-            separator = _separator_cache[model_name]
-            # Update output directory for this run
-            separator.output_dir = output_dir
-            _current_cached_model = model_name
-        else:
-            # Create new separator and cache it
-            logger.info(f"Loading model: {model_name} (will be cached)")
-            separator = Separator(
-                output_dir=output_dir,
-                model_file_dir=models_dir,
-                output_format="WAV",
-                normalization_threshold=kwargs.get("normalization", 0.9)
-            )
-            separator.load_model(model_name)
-            _separator_cache[model_name] = separator
-            _current_cached_model = model_name
-        
-        # Run separation
-        output_files = separator.separate(input_file)
-        logger.info(f"audio-separator produced: {output_files}")
-        return output_files if output_files else []
-    except Exception as e:
-        logger.error(f"audio-separator failed for {model_name}: {e}")
-        return []
+    with _separator_lock:
+        try:
+            # Check if we need to clear cache (model switch)
+            if _current_cached_model and _current_cached_model != model_name:
+                logger.info(f"Model switch detected: {_current_cached_model} -> {model_name}. Clearing cache.")
+                _separator_cache.clear()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            
+            # Check if model is already cached
+            if model_name in _separator_cache:
+                logger.info(f"Using cached model: {model_name} (hot-loaded)")
+                separator = _separator_cache[model_name]
+                # Update output directory for this run safely under lock
+                separator.output_dir = output_dir
+                _current_cached_model = model_name
+            else:
+                # Create new separator and cache it
+                logger.info(f"Loading model: {model_name} (will be cached)")
+                separator = Separator(
+                    output_dir=output_dir,
+                    model_file_dir=models_dir,
+                    output_format="WAV",
+                    normalization_threshold=kwargs.get("normalization", 0.9)
+                )
+                separator.load_model(model_name)
+                _separator_cache[model_name] = separator
+                _current_cached_model = model_name
+            
+            # Run separation
+            output_files = separator.separate(input_file)
+            logger.info(f"audio-separator produced: {output_files}")
+            return output_files if output_files else []
+        except Exception as e:
+            logger.error(f"audio-separator failed for {model_name}: {e}")
+            return []
 
 
 def clear_model_cache():
@@ -254,7 +259,7 @@ def _ensure_input_is_wav(input_file, temp_root, base_name):
             "-v", "error",
             "-i", input_file,
             "-ac", "2",      # Force Stereo
-            "-ar", "44100",  # Standard SR
+            "-ar", str(constants.PRE_CONVERSION_SAMPLE_RATE),  # Standard SR
             converted_wav
         ]
         
@@ -531,7 +536,7 @@ def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         
         # Resample if needed
-        target_sr = kwargs.get("sample_rate", 44100)
+        target_sr = kwargs.get("sample_rate", constants.DEFAULT_SAMPLE_RATE)
         if current_sr != target_sr:
              resampler = torchaudio.transforms.Resample(current_sr, target_sr)
              blended = resampler(blended)
@@ -552,44 +557,35 @@ def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep
         sf.write(dst, src_np, current_sr, subtype=subtype)
         
         # Post-Conversion for MP3 (if needed)
-        # sf.write usually creates standard WAV if filename is mp3 but library doesn't support it?
-        # Actually sf depends on libsndfile. If enabled, it writes mp3.
-        # If not, we might need ffmpeg check.
-        # But let's assume if user selected MP3, system supports it or we fallback.
-        # Ideally, we write WAV then convert with FFmpeg if we want to be 100% sure of bitrate.
         if final_ext == "mp3":
-             # We can use our ffmpeg fallback if we want specific bitrate like 320k
-             # Check if sf.write actually wrote output.
              if not os.path.exists(dst) or os.path.getsize(dst) < 100:
-                 # Retry by writing WAV then converting
-                 temp_wav = dst.replace(".mp3", ".wav")
+                 temp_wav = dst.replace(".mp3", "_temp.wav")
                  sf.write(temp_wav, src_np, current_sr)
-                 from src.utils.resource_utils import get_ffmpeg_path
-                 result = subprocess.run([get_ffmpeg_path(), "-y", "-i", temp_wav, "-b:a", "320k", dst], 
-                               capture_output=True)
-                 if result.returncode != 0:
-                     logger.error(f"FFmpeg MP3 conversion failed: {result.stderr.decode()}")
-                 if os.path.exists(temp_wav): os.remove(temp_wav)
+                 _convert_to_format(temp_wav, dst, fmt="mp3", sample_rate=current_sr, bitrate=constants.MP3_BITRATE)
+                 if os.path.exists(temp_wav):
+                     try:
+                         os.remove(temp_wav)
+                     except Exception:
+                         pass
 
         # Band Splitting (Low/Mid/High)
         if kwargs.get("split_bands", False):
             try:
-                # Low (< 300Hz)
-                low_stem = torchaudio.functional.lowpass_biquad(blended, current_sr, cutoff_freq=300)
+                # Low (< BAND_LOW_HZ)
+                low_stem = torchaudio.functional.lowpass_biquad(blended, current_sr, cutoff_freq=constants.BAND_LOW_HZ)
                 path_low = dst.replace(f".{final_ext}", f"_Low.{final_ext}")
                 src_np = low_stem.detach().cpu().t().numpy()
                 sf.write(path_low, src_np, current_sr, subtype=subtype)
                 
-                # High (> 4000Hz)
-                high_stem = torchaudio.functional.highpass_biquad(blended, current_sr, cutoff_freq=4000)
+                # High (> BAND_HIGH_HZ)
+                high_stem = torchaudio.functional.highpass_biquad(blended, current_sr, cutoff_freq=constants.BAND_HIGH_HZ)
                 path_high = dst.replace(f".{final_ext}", f"_High.{final_ext}")
                 band_np = high_stem.detach().cpu().t().numpy()
                 sf.write(path_high, band_np, current_sr, subtype=subtype)
                 
-                # Mid (300Hz - 4000Hz)
-                # Apply Highpass(300) then Lowpass(4000)
-                mid_stem = torchaudio.functional.highpass_biquad(blended, current_sr, cutoff_freq=300)
-                mid_stem = torchaudio.functional.lowpass_biquad(mid_stem, current_sr, cutoff_freq=4000)
+                # Mid (BAND_LOW_HZ - BAND_HIGH_HZ)
+                mid_stem = torchaudio.functional.highpass_biquad(blended, current_sr, cutoff_freq=constants.BAND_LOW_HZ)
+                mid_stem = torchaudio.functional.lowpass_biquad(mid_stem, current_sr, cutoff_freq=constants.BAND_HIGH_HZ)
                 path_mid = dst.replace(f".{final_ext}", f"_Mid.{final_ext}")
                 band_np = mid_stem.detach().cpu().t().numpy()
                 sf.write(path_mid, band_np, current_sr, subtype=subtype)
@@ -604,7 +600,7 @@ def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep
              final_backing = backing_accumulator
              
              # Resample
-             target_sr = kwargs.get("sample_rate", 44100)
+             target_sr = kwargs.get("sample_rate", constants.DEFAULT_SAMPLE_RATE)
              if backing_sr != target_sr:
                   resampler = torchaudio.transforms.Resample(backing_sr, target_sr)
                   final_backing = resampler(final_backing)
@@ -627,13 +623,14 @@ def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep
              # Convert if needed (MP3)
              if final_ext == "mp3":
                  if not os.path.exists(dst_backing) or os.path.getsize(dst_backing) < 100:
-                      temp_wav = dst_backing.replace(".mp3", ".wav")
+                      temp_wav = dst_backing.replace(".mp3", "_temp.wav")
                       sf.write(temp_wav, src_np, backing_sr)
-                      from src.utils.resource_utils import get_ffmpeg_path
-                      result = subprocess.run([get_ffmpeg_path(), "-y", "-i", temp_wav, "-b:a", "320k", dst_backing], capture_output=True)
-                      if result.returncode != 0:
-                          logger.error(f"FFmpeg MP3 conversion failed: {result.stderr.decode()}")
-                      if os.path.exists(temp_wav): os.remove(temp_wav)
+                      _convert_to_format(temp_wav, dst_backing, fmt="mp3", sample_rate=backing_sr, bitrate=constants.MP3_BITRATE)
+                      if os.path.exists(temp_wav):
+                          try:
+                              os.remove(temp_wav)
+                          except Exception:
+                              pass
 
              logger.info(f"Created Backing Track: {backing_name}")
 
@@ -766,7 +763,7 @@ def separate_audio(input_file, output_dir, stem_count, quality, export_zip, keep
                 processor.process_lead_backing(
                     vocals_file,
                     final_ext=final_ext,
-                    sample_rate=kwargs.get("sample_rate", 44100)
+                    sample_rate=kwargs.get("sample_rate", constants.DEFAULT_SAMPLE_RATE)
                 )
             except Exception as e:
                 logger.error(f"Lead & Backing Pipeline failed: {e}")
@@ -933,10 +930,18 @@ class SplitterWorker(QThread):
                             elif "Created" in line:
                                 self.progress_updated.emit(filename, 94, "Writing Files...")
 
-            if self.is_cancelled: return
+            if self.is_cancelled:
+                self.progress_updated.emit(filename, 0, "Cancelled")
+                logger.info(f"Processing cancelled for {filename}")
+                return
 
             # Wait for process to fully exit
             self.process.wait()
+
+            if self.is_cancelled:
+                self.progress_updated.emit(filename, 0, "Cancelled")
+                logger.info(f"Processing cancelled for {filename}")
+                return
 
             # Smooth transition to Done
             self.progress_updated.emit(filename, 95, "Finalizing...")

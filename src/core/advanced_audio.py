@@ -207,7 +207,7 @@ class AdvancedAudioProcessor:
 
         return current_vocals
 
-    def process_lead_backing(self, vocals_file, final_ext="wav", sample_rate=44100):
+    def process_lead_backing(self, vocals_file, final_ext="wav", sample_rate=constants.DEFAULT_SAMPLE_RATE):
         """
         Splits a vocal track into Lead Vocals and Backing Vocals / Harmonies
         using a specialized Karaoke/BVE model.
@@ -266,7 +266,7 @@ class AdvancedAudioProcessor:
                 else:
                     cmd = [ffmpeg, "-y", "-v", "error", "-i", src_file]
                     if final_ext == "mp3":
-                        cmd.extend(["-b:a", "320k"])
+                        cmd.extend(["-b:a", constants.MP3_BITRATE])
                     if sample_rate:
                         cmd.extend(["-ar", str(sample_rate)])
                     cmd.append(dst)
@@ -627,25 +627,36 @@ def apply_audio_enhancement(vocals_file, output_dir, input_file=None, dereverb_i
 
         # Apply Low Cut (High Pass) if requested
         if low_cut:
-            logger.info("Applying Low Cut Filter (80Hz)...")
-            current_data = dsp.highpass_filter(current_data, 80, sr)
+            try:
+                logger.info("Applying Low Cut Filter (80Hz)...")
+                current_data = dsp.highpass_filter(current_data, 80, sr)
+            except Exception as e:
+                logger.warning(f"Low Cut filter failed: {e}")
 
         # Apply 3-Band EQ if requested
         if eq_low != 0 or eq_mid != 0 or eq_high != 0:
-            logger.info(f"Applying EQ: Low={eq_low}dB, Mid={eq_mid}dB, High={eq_high}dB")
-            current_data = dsp.apply_eq(current_data, sr, eq_low, eq_mid, eq_high)
-            # Clip after EQ
-            current_data = np.clip(current_data, -1.0, 1.0)
+            try:
+                logger.info(f"Applying EQ: Low={eq_low}dB, Mid={eq_mid}dB, High={eq_high}dB")
+                current_data = dsp.apply_eq(current_data, sr, eq_low, eq_mid, eq_high)
+                current_data = np.clip(current_data, -1.0, 1.0)
+            except Exception as e:
+                logger.warning(f"3-Band EQ failed: {e}")
             
         # Apply Exciter (Warmth)
         if exciter_intensity > 0:
-            logger.info(f"Applying Exciter (Warmth): {exciter_intensity}%")
-            current_data = dsp.apply_exciter(current_data, sr, exciter_intensity)
+            try:
+                logger.info(f"Applying Exciter (Warmth): {exciter_intensity}%")
+                current_data = dsp.apply_exciter(current_data, sr, exciter_intensity)
+            except Exception as e:
+                logger.warning(f"Exciter failed: {e}")
             
         # Apply Compressor (Punch)
         if compressor_intensity > 0:
-            logger.info(f"Applying Compressor (Punch): {compressor_intensity}%")
-            current_data = dsp.apply_compressor(current_data, sr, compressor_intensity)
+            try:
+                logger.info(f"Applying Compressor (Punch): {compressor_intensity}%")
+                current_data = dsp.apply_compressor(current_data, sr, compressor_intensity)
+            except Exception as e:
+                logger.warning(f"Compressor failed: {e}")
         
         # Save final result
         output_file = os.path.join(output_dir, "vocals_enhanced.wav")
@@ -653,7 +664,7 @@ def apply_audio_enhancement(vocals_file, output_dir, input_file=None, dereverb_i
         
         # AGGRESSIVE CLEANUP
         # We scan for any leftovers similar to our known patterns. 
-        # We also added retry logic for file locks.
+        # We use exponential backoff retry logic for file locks.
         import time
         
         cleanup_patterns = constants.CLEANUP_PATTERNS
@@ -667,18 +678,20 @@ def apply_audio_enhancement(vocals_file, output_dir, input_file=None, dereverb_i
                 
             # Check pattern
             if any(p in f for p in cleanup_patterns):
-                for attempt in range(3): # Retry 3 times
+                for attempt in range(3): # Retry 3 times with exponential backoff
                     try:
                         if os.path.exists(full_path):
                             os.remove(full_path)
                             logger.info(f"Cleaned up temp file: {f}")
                         break
                     except PermissionError:
-                        logger.warning(f"File lock on {f}, retrying cleanup in 0.5s...")
-                        time.sleep(0.5)
+                        backoff = 0.5 * (2 ** attempt)
+                        logger.warning(f"File lock on {f}, retrying cleanup in {backoff:.1f}s...")
+                        time.sleep(backoff)
                     except Exception as e:
+                        backoff = 0.5 * (2 ** attempt)
                         logger.warning(f"Cleanup error for {f}: {e}")
-                        break
+                        time.sleep(backoff)
 
         return output_file
         

@@ -16,6 +16,11 @@ if sys.stdout is None:
 if sys.stderr is None:
     sys.stderr = StreamRedirector()
 
+def _get_log_dir():
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
 def crash_handler(exctype, value, tb_obj):
     import traceback as tb
     import datetime
@@ -24,7 +29,9 @@ def crash_handler(exctype, value, tb_obj):
     error_msg = "".join(tb.format_exception(exctype, value, tb_obj))
     
     try:
-        with open("CRASH_LOG.txt", "a") as f:
+        log_dir = _get_log_dir()
+        crash_log = os.path.join(log_dir, "CRASH_LOG.txt")
+        with open(crash_log, "a", encoding="utf-8") as f:
             f.write(f"\n[{timestamp}] CRASH REPORT:\n")
             f.write(error_msg)
             f.write("-" * 50 + "\n")
@@ -39,28 +46,37 @@ sys.excepthook = crash_handler
 from PyQt6.QtWidgets import QApplication
 from src.ui.main_window import MainWindow
 from src.ui.splash import SplashScreen
+from src.core import constants
 import time
 
 def run_worker(args):
     # args is a list of arguments passed after --worker
-    # Expected: input_file stem_count quality export_zip keep_original
     try:
         import json
-        # We'll pass a single JSON string for simplicity
         config = json.loads(args[0])
         
         from src.core.splitter import separate_audio
+        input_file = config['input_file']
+        output_dir = config['output_dir']
+        stem_count = config['stem_count']
+        quality = config['quality']
+        export_zip = config['export_zip']
+        keep_original = config['keep_original']
+        
+        # Forward all remaining options dynamically
+        extra_options = {
+            k: v for k, v in config.items()
+            if k not in ('input_file', 'output_dir', 'stem_count', 'quality', 'export_zip', 'keep_original')
+        }
+        
         separate_audio(
-            config['input_file'],
-            config['output_dir'],
-            config['stem_count'],
-            config['quality'],
-            config['export_zip'],
-            config['keep_original'],
-            export_mp3=config.get('export_mp3', False),
-            mode=config.get('mode', 'standard'),
-            dereverb=config.get('dereverb', False),
-            invert=config.get('invert', False)
+            input_file,
+            output_dir,
+            stem_count,
+            quality,
+            export_zip,
+            keep_original,
+            **extra_options
         )
     except Exception as e:
         print(f"WORKER ERROR: {e}", file=sys.stderr)
@@ -83,7 +99,7 @@ def main():
     
     # Configure GPU memory limits for better performance (Performance Optimization #14)
     from src.core.gpu_utils import configure_gpu_memory
-    configure_gpu_memory(0.9)  # Use max 90% of GPU memory
+    configure_gpu_memory(constants.GPU_MEMORY_FRACTION)  # Use configured fraction of GPU memory
     
     splash.show_message("Loading AI Models...")
     app.processEvents()

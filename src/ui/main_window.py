@@ -85,6 +85,8 @@ class MainWindow(QMainWindow):
         self.resize(1280, 850)
         
         self.model_manager = ModelManager()
+        self._analysis_workers = []
+        self._active_workers = {}
         
         # Set window icon
         icon_path = get_resource_path(os.path.join("resources", "icon.png"))
@@ -587,10 +589,18 @@ class MainWindow(QMainWindow):
                 self.player_widget.load_stems(stems)
 
     def _update_gpu_status(self):
-        """Update GPU status display."""
+        """Update GPU status display with VRAM info."""
         is_gpu, device_name, _ = get_gpu_info()
         if is_gpu:
-            self.gpu_label.setText(f"🚀 {device_name}")
+            from src.core.gpu_utils import get_vram_usage
+            vram = get_vram_usage()
+            if vram.get("available"):
+                self.gpu_label.setText(f"🚀 {device_name} ({vram['allocated_gb']:.1f}/{vram['total_gb']:.1f}GB)")
+                self.gpu_label.setToolTip(
+                    f"VRAM Allocated: {vram['allocated_gb']:.2f}GB / Reserved: {vram['reserved_gb']:.2f}GB / Total: {vram['total_gb']:.2f}GB ({vram['percent']}%)"
+                )
+            else:
+                self.gpu_label.setText(f"🚀 {device_name}")
             self.gpu_label.setStyleSheet(
                 f"background-color: rgba(0, 212, 255, 0.1); color: {COLORS['success']}; "
                 f"padding: 4px 12px; border-radius: 12px; font-size: 11px; "
@@ -639,6 +649,7 @@ class MainWindow(QMainWindow):
             self.add_files_to_queue(files)
 
     def add_files_to_queue(self, files):
+        from src.ui.workers import AnalysisWorker
         for f in files:
             item = QListWidgetItem(self.queue_list)
             item.setData(Qt.ItemDataRole.UserRole, f)
@@ -652,10 +663,29 @@ class MainWindow(QMainWindow):
             widget.resplit_requested.connect(lambda i=item: self.resplit_item(i))
             widget.midi_export_requested.connect(self.start_midi_export)
 
+            # Background BPM and Key detection (non-blocking)
+            try:
+                worker = AnalysisWorker(f)
+                self._analysis_workers.append(worker)
+                worker.finished.connect(
+                    lambda path, res, w=widget, wrk=worker: self._on_analysis_finished(path, res, w, wrk)
+                )
+                worker.start()
+            except Exception as e:
+                logger.debug(f"Could not start AnalysisWorker: {e}")
+
         # Auto-load the first file's waveform if this is a fresh batch
         if files:
             self.player_widget.load_input_waveform(files[0]) # Load into bottom player
             # self.visualizer.load_file(files[0]) 
+
+    def _on_analysis_finished(self, file_path, result, widget, worker):
+        if worker in self._analysis_workers:
+            self._analysis_workers.remove(worker)
+        try:
+            widget.set_analysis(result)
+        except RuntimeError:
+            pass
 
     def start_midi_export(self, audio_paths, batch_mode=False):
         """Start MIDI export for a specific stem or list of stems."""
@@ -818,12 +848,14 @@ class MainWindow(QMainWindow):
             **advanced_values
         }
         
-        self.worker = SplitterWorker(file_path, options)
-        self.worker.progress_updated.connect(widget.update_progress)
-        self.worker.log_message.connect(lambda msg: self.append_log(msg + "\n"))
-        self.worker.finished.connect(lambda _: self.on_worker_finished(item))
-        self.worker.error_occurred.connect(lambda f, e: self.on_worker_error(item, e))
-        self.worker.start()
+        worker = SplitterWorker(file_path, options)
+        self.worker = worker
+        self._active_workers[item] = worker
+        worker.progress_updated.connect(widget.update_progress)
+        worker.log_message.connect(lambda msg: self.append_log(msg + "\n"))
+        worker.finished.connect(lambda _, w=worker: self.on_worker_finished(item, w))
+        worker.error_occurred.connect(lambda f, e, w=worker: self.on_worker_error(item, e, w))
+        worker.start()
 
     def start_preview(self):
         """Generate a 30s preview for the selected item."""
@@ -931,8 +963,13 @@ class MainWindow(QMainWindow):
             self.player_widget.load_stems(stems)
             self.player_widget.toggle_playback() # Auto-play
 
-    def on_worker_finished(self, item):
+    def on_worker_finished(self, item, worker=None):
         import glob
+        
+        if worker is None:
+            worker = getattr(self, 'worker', None)
+        self._active_workers.pop(item, None)
+        self._update_gpu_status()
         
         file_path = item.data(Qt.ItemDataRole.UserRole)
         base_name = os.path.splitext(os.path.basename(file_path))[0]
@@ -944,7 +981,8 @@ class MainWindow(QMainWindow):
             output_files += glob.glob(os.path.join(output_dir, "*.mp3"))
 
         widget = self.queue_list.itemWidget(item)
-        widget.update_progress(None, 100, "Done", output_files=output_files)
+        if widget:
+            widget.update_progress(None, 100, "Done", output_files=output_files)
         
         play_notification_sound()
             
@@ -952,15 +990,19 @@ class MainWindow(QMainWindow):
             self.open_item_folder(item)
             
         # Check for Auto-MIDI Export
-        if self.worker.options.get("export_midi") and output_files:
+        export_midi = worker.options.get("export_midi") if worker else False
+        if export_midi and output_files:
             self.start_midi_export(output_files, batch_mode=True)
             
         self.start_processing()
 
-    def on_worker_error(self, item, error):
+    def on_worker_error(self, item, error, worker=None):
+        self._active_workers.pop(item, None)
+        self._update_gpu_status()
         widget = self.queue_list.itemWidget(item)
-        widget.status_label.setText(f"Error: {error}")
-        widget.status_label.setStyleSheet(f"color: {COLORS['danger']};")
+        if widget:
+            widget.status_label.setText(f"Error: {error}")
+            widget.status_label.setStyleSheet(f"color: {COLORS['danger']};")
         self.start_processing()
 
     # --- Sidebar Navigation Methods ---
@@ -1076,15 +1118,46 @@ class MainWindow(QMainWindow):
             self.quality_panel.quality_slider.setValue(preset["quality"])
         
         # Apply to enhancement panel
-        if "dereverb" in preset and hasattr(self.enhance_panel, 'slider_dereverb'):
-            derev = preset["dereverb"]
-            val = 50 if derev is True else (0 if derev is False else int(derev))
-            self.enhance_panel.slider_dereverb.setValue(val)
-        if "denoise" in preset and hasattr(self.enhance_panel, 'slider_denoise'):
-            denoise = preset["denoise"]
-            val = 50 if denoise is True else (0 if denoise is False else int(denoise))
-            self.enhance_panel.slider_denoise.setValue(val)
-        
+        sliders_map = {
+            "dereverb": "slider_dereverb",
+            "deecho": "slider_deecho",
+            "denoise": "slider_denoise",
+            "clarity": "slider_clarity",
+            "ensemble": "slider_ensemble",
+            "bass_boost": "slider_bass",
+            "compressor": "slider_compressor",
+            "exciter": "slider_exciter",
+            "stereo_width": "slider_stereo",
+            "eq_low": "slider_eq_low",
+            "eq_mid": "slider_eq_mid",
+            "eq_high": "slider_eq_high",
+        }
+        for key, attr in sliders_map.items():
+            if key in preset and hasattr(self.enhance_panel, attr):
+                val = preset[key]
+                if isinstance(val, bool):
+                    val = 50 if val else 0
+                getattr(self.enhance_panel, attr).setValue(int(val))
+
+        if "low_cut" in preset and hasattr(self.enhance_panel, 'chk_low_cut'):
+            self.enhance_panel.chk_low_cut.setChecked(bool(preset["low_cut"]))
+
+        # Apply manipulation settings
+        if hasattr(self, 'manip_panel'):
+            if "pitch_shift" in preset and hasattr(self.manip_panel, 'spin_pitch'):
+                self.manip_panel.spin_pitch.setValue(int(preset["pitch_shift"]))
+            if "time_stretch" in preset and hasattr(self.manip_panel, 'spin_time'):
+                self.manip_panel.spin_time.setValue(float(preset["time_stretch"]))
+            if "split_bands" in preset and hasattr(self.manip_panel, 'chk_split_bands'):
+                self.manip_panel.chk_split_bands.setChecked(bool(preset["split_bands"]))
+
+        # Apply advanced settings
+        if hasattr(self, 'advanced_panel'):
+            if "model" in preset and hasattr(self.advanced_panel, 'combo_model'):
+                idx = self.advanced_panel.combo_model.findText(preset["model"])
+                if idx >= 0:
+                    self.advanced_panel.combo_model.setCurrentIndex(idx)
+
         # Apply to output panel
         if "format" in preset:
             idx = self.output_panel.combo_format.findText(preset["format"])
@@ -1094,6 +1167,10 @@ class MainWindow(QMainWindow):
             idx = self.output_panel.combo_rate.findText(str(preset["sample_rate"]))
             if idx >= 0:
                 self.output_panel.combo_rate.setCurrentIndex(idx)
+        if "bit_depth" in preset and hasattr(self.output_panel, 'combo_depth'):
+            idx = self.output_panel.combo_depth.findText(str(preset["bit_depth"]))
+            if idx >= 0:
+                self.output_panel.combo_depth.setCurrentIndex(idx)
         
         self.append_log(f"Applied preset: {name}\n")
     
@@ -1113,15 +1190,36 @@ class MainWindow(QMainWindow):
         enhance_vals = self.enhance_panel.get_values()
         output_vals = self.output_panel.get_values()
         quality_vals = self.quality_panel.get_values()
+        manip_vals = self.manip_panel.get_values() if hasattr(self, 'manip_panel') else {}
+        adv_vals = self.advanced_panel.get_values() if hasattr(self, 'advanced_panel') else {}
         
         settings = {
             "stem_count": stem_vals.get("stem_count"),
             "mode": stem_vals.get("mode"),
             "quality": quality_vals.get("quality"),
-            "dereverb": enhance_vals.get("dereverb"),
-            "denoise": enhance_vals.get("denoise"),
             "format": output_vals.get("format"),
             "sample_rate": output_vals.get("sample_rate"),
+            "bit_depth": output_vals.get("bit_depth"),
+            # Audio enhancements
+            "dereverb": enhance_vals.get("dereverb", 0),
+            "deecho": enhance_vals.get("deecho", 0),
+            "denoise": enhance_vals.get("denoise", 0),
+            "clarity": enhance_vals.get("clarity", 0),
+            "ensemble": enhance_vals.get("ensemble", 0),
+            "bass_boost": enhance_vals.get("bass_boost", 0),
+            "compressor": enhance_vals.get("compressor", 0),
+            "exciter": enhance_vals.get("exciter", 0),
+            "stereo_width": enhance_vals.get("stereo_width", 100),
+            "low_cut": enhance_vals.get("low_cut", False),
+            "eq_low": enhance_vals.get("eq_low", 0),
+            "eq_mid": enhance_vals.get("eq_mid", 0),
+            "eq_high": enhance_vals.get("eq_high", 0),
+            # Audio manipulation
+            "pitch_shift": manip_vals.get("pitch_shift", 0),
+            "time_stretch": manip_vals.get("time_stretch", 1.0),
+            "split_bands": manip_vals.get("split_bands", False),
+            # Advanced model
+            "model": adv_vals.get("model", ""),
         }
         
         if save_preset(name, settings):

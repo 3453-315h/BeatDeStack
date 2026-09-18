@@ -1,5 +1,4 @@
 from PyQt6.QtCore import QThread, pyqtSignal
-from src.core.midi_converter import MidiConverter
 from src.utils.logger import logger
 import os
 
@@ -14,6 +13,7 @@ class MidiExportWorker(QThread):
             self.audio_paths = [audio_paths]
         else:
             self.audio_paths = audio_paths
+        from src.core.midi_converter import MidiConverter
         self.converter = MidiConverter()
 
     def run(self):

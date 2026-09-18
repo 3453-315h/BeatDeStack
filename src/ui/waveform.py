@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QThread, QRectF
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPen
 
 from src.ui.style import COLORS
+from src.core import constants
 
 class WaveformLoader(QThread):
     """Background thread to load audio data for visualization."""
@@ -27,20 +28,21 @@ class WaveformLoader(QThread):
             # Get bundled or system ffmpeg path
             ffmpeg_path = get_ffmpeg_path()
 
-            # Command: Decode to float32 linear PCM, mono, 44100Hz, stdout
+            # Command: Decode to float32 linear PCM, mono, DEFAULT_SAMPLE_RATE, stdout
             # -v error : quiet
             # -i file : input
             # -f f32le : format float 32 little endian
             # -ac 1 : audio channels 1 (mix to mono)
-            # -ar 44100 : sample rate
+            # -ar sample_rate : sample rate
             # - : output to pipe
+            sample_rate = constants.DEFAULT_SAMPLE_RATE
             cmd = [
                 ffmpeg_path, 
                 "-v", "error", 
                 "-i", self.file_path,
                 "-f", "f32le",
                 "-ac", "1",
-                "-ar", "44100",
+                "-ar", str(sample_rate),
                 "-"
             ]
             
@@ -70,7 +72,6 @@ class WaveformLoader(QThread):
             frames_np = np.frombuffer(stdout_data, dtype=np.float32)
             
             # Calc duration
-            sample_rate = 44100
             total_frames = len(frames_np)
             duration = total_frames / sample_rate
             
